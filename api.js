@@ -50,26 +50,24 @@ const AionAPI = (function () {
 
     async function getFile(path) {
         const repo = AionState.getRepo();
-        const userPath = AionState.getUserDataPath();
-        const fullPath = `${userPath}/${path}`;
 
         try {
-            const response = await request(`/repos/${repo}/contents/${fullPath}`);
+            const response = await request(`/repos/${repo}/contents/${path}`);
             const data = await response.json();
             const content = JSON.parse(atob(data.content));
             return { content, sha: data.sha, exists: true };
         } catch (e) {
-            if (e.message.includes('404')) {
+            if (e.message.includes('404') || e.message.includes('Not Found')) {
                 return { content: null, sha: null, exists: false };
             }
             throw e;
         }
     }
 
+
+
     async function saveFile(path, content, message, existingSha = null) {
         const repo = AionState.getRepo();
-        const userPath = AionState.getUserDataPath();
-        const fullPath = `${userPath}/${path}`;
 
         const body = {
             message: message || `Update ${path}`,
@@ -79,7 +77,7 @@ const AionAPI = (function () {
 
         if (existingSha) body.sha = existingSha;
 
-        const response = await request(`/repos/${repo}/contents/${fullPath}`, {
+        const response = await request(`/repos/${repo}/contents/${path}`, {
             method: 'PUT',
             body: JSON.stringify(body)
         });
@@ -88,6 +86,7 @@ const AionAPI = (function () {
         AionState.invalidateCache(path);
         return { sha: data.content.sha, success: true };
     }
+
 
     async function getFileWithCache(path, cacheKey, maxAge = 60000) {
         const cached = AionState.getCache(cacheKey);
