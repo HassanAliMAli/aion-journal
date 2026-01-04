@@ -1,0 +1,24 @@
+{
+    "_meta": {
+        "schema_version": "1.0.0",
+        "created_at_utc": "2026-01-04T00:00:00.000Z",
+        "last_modified_at_utc": "2026-01-04T00:00:00.000Z",
+        "owner_user_id": "YOUR_GITHUB_USER_ID"
+    },
+    "current_mode": 98,
+    "locked_sheets": [
+        "equity_snapshots",
+        "management_events",
+        "partial_exits",
+        "strategy_changes",
+        "audit_log"
+    ],
+    "upgrade_ready_score": 0,
+    "upgrade_triggers": [
+        "Complete 50 trades with proper documentation",
+        "Achieve 95% rule compliance for 30 days",
+        "Review and approve all playbook setups"
+    ],
+    "manual_override_warning": "Mode 100 enables strict audit logging. All modifications to locked sheets will be permanently recorded. This action cannot be undone.",
+    "last_mode_change_utc": null
+}

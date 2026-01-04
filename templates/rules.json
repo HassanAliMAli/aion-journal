@@ -1,0 +1,26 @@
+{
+    "_meta": {
+        "schema_version": "1.0.0",
+        "created_at_utc": "2026-01-04T00:00:00.000Z",
+        "last_modified_at_utc": "2026-01-04T00:00:00.000Z",
+        "owner_user_id": "YOUR_GITHUB_USER_ID"
+    },
+    "rules": [
+        {
+            "rule_id": "R1",
+            "account_id": "ACC-001",
+            "max_risk_per_trade_pct": 1.0,
+            "max_daily_loss_pct": 3.0,
+            "max_open_risk_pct": 3.0,
+            "minimum_rr": 2.0,
+            "stop_loss_rule": "Always use stop loss, no mental stops",
+            "take_profit_rule": "Minimum 2R target, partials allowed at 1R",
+            "time_exit_rule": "Close all trades before major news events",
+            "news_filter_rule": "No trades 30min before/after high-impact news",
+            "session_rule": "London and NY sessions only",
+            "no_trade_conditions": "Fridays after 3PM UTC, Mondays first 2 hours, Low liquidity holidays",
+            "enforcement_level": "STRICT",
+            "notes": "Core risk management rules for live trading"
+        }
+    ]
+}

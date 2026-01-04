@@ -1,0 +1,10 @@
+{
+    "_meta": {
+        "schema_version": "1.0.0",
+        "created_at_utc": "2026-01-04T00:00:00.000Z",
+        "last_modified_at_utc": "2026-01-04T00:00:00.000Z",
+        "owner_user_id": "YOUR_GITHUB_USER_ID"
+    },
+    "status": "LOCKED",
+    "entries": []
+}
