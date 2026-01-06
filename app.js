@@ -26,7 +26,7 @@ const AionApp = (function () {
     function setupEventListeners() {
         document.getElementById('auth-btn').addEventListener('click', handleLogin);
         document.getElementById('logout-btn').addEventListener('click', handleLogout);
-        document.getElementById('pat-input').addEventListener('keypress', (e) => {
+        document.getElementById('password-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') handleLogin();
         });
         document.getElementById('confirm-cancel').addEventListener('click', hideConfirmModal);
@@ -45,39 +45,38 @@ const AionApp = (function () {
     }
 
     async function handleLogin() {
-        const pat = document.getElementById('pat-input').value.trim();
-        const repo = document.getElementById('repo-input').value.trim();
+        const username = document.getElementById('username-input').value.trim();
+        const password = document.getElementById('password-input').value.trim();
         const errorEl = document.getElementById('auth-error');
         const btn = document.getElementById('auth-btn');
 
-        if (!pat || !repo) {
-            showError(errorEl, 'Please enter both PAT and repository');
+        if (!username || !password) {
+            showError(errorEl, 'Please enter username and password');
             return;
         }
 
         btn.disabled = true;
-        btn.textContent = 'Connecting...';
+        btn.textContent = 'Logging in...';
         errorEl.classList.add('hidden');
 
         try {
-            AionState.setAuthenticated(null, pat, repo);
-            const result = await AionAPI.validateAuth();
+            const result = await AionAPI.login(username, password);
 
-            if (!result.valid) {
-                throw new Error(result.error || 'Invalid token');
+            if (!result.success) {
+                throw new Error(result.error || 'Login failed');
             }
 
-            AionState.setAuthenticated(result.userId, pat, repo);
+            AionState.setAuthenticated(result.user);
             hideAuthModal();
             await loadInitialData();
             navigateTo('dashboard');
-            showToast('Connected successfully', 'success');
+            showToast('logged in successfully', 'success');
         } catch (e) {
             AionState.clearAuthentication();
             showError(errorEl, e.message);
         } finally {
             btn.disabled = false;
-            btn.textContent = 'Connect to GitHub';
+            btn.textContent = 'Login';
         }
     }
 
@@ -86,6 +85,7 @@ const AionApp = (function () {
         try {
             const result = await AionAPI.validateAuth();
             if (result.valid) {
+                AionState.setAuthenticated(result.user); // Refresh state
                 hideAuthModal();
                 await loadInitialData();
                 navigateTo(AionState.getCurrentPage() || 'dashboard');
@@ -101,11 +101,12 @@ const AionApp = (function () {
     }
 
     function handleLogout() {
-        showConfirm('Logout', 'Are you sure you want to disconnect?', () => {
+        showConfirm('Logout', 'Are you sure you want to logout?', async () => {
+            await AionAPI.logout();
             AionState.clearAuthentication();
             showAuthModal();
-            document.getElementById('pat-input').value = '';
-            document.getElementById('repo-input').value = '';
+            document.getElementById('username-input').value = '';
+            document.getElementById('password-input').value = '';
         });
     }
 
@@ -122,7 +123,7 @@ const AionApp = (function () {
                 AionState.setTimezone(prefs.content.timezone);
             }
 
-            document.getElementById('user-info').textContent = `ID: ${AionState.getUserId()}`;
+            document.getElementById('user-info').textContent = `${AionState.getDisplayName()}`;
             updateModeDisplay();
         } catch (e) {
             showToast('Some data failed to load', 'warning');
@@ -144,7 +145,9 @@ const AionApp = (function () {
             case 'trades': AionTrades.render(); break;
             case 'trade-detail': AionTradeDetail.render(params.tradeId); break;
             case 'strategies': AionStrategies.render(); break;
+            case 'playbook': AionPlaybook.render(); break;
             case 'rules': AionRules.render(); break;
+            case 'accounts': AionAccounts.render(); break;
             case 'analytics': AionAnalyticsUI.render(); break;
             case 'control': AionControlPanel.render(); break;
         }
@@ -165,6 +168,23 @@ const AionApp = (function () {
         const mode = AionState.getCurrentMode();
         badge.textContent = `MODE ${mode}`;
         badge.className = `px-3 py-1 rounded-full text-xs font-bold ${mode === 100 ? 'mode-100' : 'mode-98'}`;
+
+        let banner = document.getElementById('audit-banner');
+        if (mode === 100) {
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'audit-banner';
+                banner.className = 'bg-red-900/50 border-b border-red-700 text-red-200 px-4 py-2 text-center text-sm font-bold tracking-wider fixed top-0 left-0 w-full z-50';
+                banner.textContent = '🔒 AUDIT MODE ACTIVE (MODE 100) - READ ONLY';
+                document.body.prepend(banner);
+                document.getElementById('app-container').style.marginTop = '30px';
+            }
+        } else {
+            if (banner) {
+                banner.remove();
+                document.getElementById('app-container').style.marginTop = '0';
+            }
+        }
     }
 
     function showAuthModal() {
@@ -189,8 +209,13 @@ const AionApp = (function () {
     function showToast(message, type = 'info') {
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        toast.innerHTML = `<span>${message}</span>`;
+        toast.className = `toast ${type} flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium animate-fade-in-down`;
+
+        // Use textContent for security
+        const span = document.createElement('span');
+        span.textContent = message;
+        toast.appendChild(span);
+
         container.appendChild(toast);
         setTimeout(() => toast.remove(), 4000);
     }

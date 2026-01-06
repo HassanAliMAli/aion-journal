@@ -78,20 +78,6 @@ const AionMarketEngine = (function () {
         return stopLossPips * pipValue;
     }
 
-    function calculateUsdRisk(entry, stopLoss, direction, positionSize, instrument, marketType) {
-        const pips = calculatePips(entry, stopLoss, instrument, marketType);
-        return calculateRiskFromPosition(positionSize, pips, instrument, marketType);
-    }
-
-    function calculateTargetPrice(entry, stopLoss, rrRatio, direction, instrument, marketType) {
-        const slDistance = Math.abs(entry - stopLoss);
-        const tpDistance = slDistance * rrRatio;
-        if (direction === 'LONG') {
-            return entry + tpDistance;
-        }
-        return entry - tpDistance;
-    }
-
     function formatPrice(price, instrument, marketType) {
         const config = getMarketConfig(marketType, instrument);
         const decimals = config.pipDecimal || config.tickDecimal || 2;
@@ -127,9 +113,7 @@ const AionMarketEngine = (function () {
         return 'OFF_HOURS';
     }
 
-    function isHighImpactNewsTime() {
-        return false;
-    }
+
 
     function buildTradeName(instrument, session, direction, setup, entryType) {
         const parts = [];
@@ -168,13 +152,11 @@ const AionMarketEngine = (function () {
         calculatePipValue,
         calculatePositionSize,
         calculateRiskFromPosition,
-        calculateUsdRisk,
-        calculateTargetPrice,
+
         formatPrice,
         getPriceIncrement,
         getSessionTimes,
         getCurrentSession,
-        isHighImpactNewsTime,
         buildTradeName,
         generateTradeNameOptions,
         MARKET_CONFIG

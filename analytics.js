@@ -165,6 +165,119 @@ const AionAnalytics = (function () {
         return trades.filter(t => t.trade_state === 'INCOMPLETE').length;
     }
 
+    function calculatePsychometrics(trades) {
+        const closed = trades.filter(t => t.trade_state === 'CLOSED');
+        const emotions = {};
+
+        // Initialize with all known emotions
+        const EMOTIONS = ['CALM', 'CONFIDENT', 'ANXIOUS', 'FEARFUL', 'GREEDY', 'FRUSTRATED', 'EUPHORIC', 'NEUTRAL'];
+        EMOTIONS.forEach(e => emotions[e] = { wins: 0, total: 0, winRate: 0, avgPnl: 0 });
+
+        closed.forEach(t => {
+            const e = t.pre_trade_emotion;
+            if (e && emotions[e]) {
+                emotions[e].total++;
+                if (t.trade_status === 'WIN') emotions[e].wins++;
+            }
+        });
+
+        // Calculate rates
+        EMOTIONS.forEach(e => {
+            if (emotions[e].total > 0) {
+                emotions[e].winRate = Math.round((emotions[e].wins / emotions[e].total) * 100);
+            }
+        });
+
+        return emotions;
+    }
+
+    function calculateStandardDeviation(values) {
+        if (values.length === 0) return 0;
+        const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
+        const squareDiffs = values.map(v => Math.pow(v - avg, 2));
+        const avgSquareDiff = squareDiffs.reduce((sum, v) => sum + v, 0) / values.length;
+        return Math.sqrt(avgSquareDiff);
+    }
+
+    function calculateSharpeRatio(trades, riskFreeRate = 0) {
+        const closed = trades.filter(t => t.trade_state === 'CLOSED' && t.net_pl !== undefined);
+        if (closed.length < 2) return 0;
+
+        // Use R-multiples for standardization if available, else PnL (normalized usually better)
+        // For simplicity and robustness here, we'll use returns (PnL).
+        // Ideally Sharpe is periodic returns, here we approximate with per-trade distribution
+        const returns = closed.map(t => t.net_pl);
+        const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+        const stdDev = calculateStandardDeviation(returns);
+
+        return stdDev === 0 ? 0 : Math.round(((avgReturn - riskFreeRate) / stdDev) * 100) / 100;
+    }
+
+    function calculateSortinoRatio(trades, targetReturn = 0) {
+        const closed = trades.filter(t => t.trade_state === 'CLOSED' && t.net_pl !== undefined);
+        if (closed.length < 2) return 0;
+
+        const returns = closed.map(t => t.net_pl);
+        const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+
+        const downside = returns.filter(r => r < targetReturn).map(r => Math.pow(r - targetReturn, 2));
+        const downsideDev = downside.length > 0 ? Math.sqrt(downside.reduce((s, d) => s + d, 0) / returns.length) : 0;
+
+        return downsideDev === 0 ? 0 : Math.round(((avgReturn - targetReturn) / downsideDev) * 100) / 100;
+    }
+
+    function calculateSQN(trades) {
+        const closed = trades.filter(t => t.trade_state === 'CLOSED' && t.net_pl !== undefined);
+        if (closed.length < 10) return 0; // SQN requires sample size
+
+        // SQN = SquareRoot(N) * (Expectancy / StdDev)
+        // Note: Van Tharp uses R-multiples for this usually. We will use proper Expectancy function logic.
+        const stats = calculateExpectancy(trades); // This returns expected R
+        // We need StdDev of R-multiples
+        const rMultiples = closed.map(t => t.actual_rr || 0);
+        const stdDevR = calculateStandardDeviation(rMultiples);
+
+        if (stdDevR === 0) return 0;
+        return Math.round((Math.sqrt(closed.length) * (stats / stdDevR)) * 100) / 100;
+    }
+
+    function calculateCAGR(trades, startingBalance, startDate) {
+        if (!startingBalance || startingBalance <= 0 || trades.length === 0) return 0;
+
+        const sorted = trades.filter(t => t.trade_state === 'CLOSED' && t.exit_time_utc)
+            .sort((a, b) => new Date(a.exit_time_utc) - new Date(b.exit_time_utc));
+
+        if (sorted.length === 0) return 0;
+
+        const lastTrade = sorted[sorted.length - 1];
+        const endBalance = startingBalance + trades.reduce((sum, t) => sum + (t.net_pl || 0), 0);
+
+        // Calculate years duration
+        const start = startDate ? new Date(startDate) : new Date(sorted[0].entry_date);
+        const end = new Date(lastTrade.exit_time_utc);
+        const years = (end - start) / (1000 * 60 * 60 * 24 * 365.25);
+
+        if (years <= 0) return 0;
+
+        // PMI = (End / Start)^(1/n) - 1
+        return Math.round((Math.pow(endBalance / startingBalance, 1 / years) - 1) * 10000) / 100;
+    }
+
+    function calculateStreak(trades) {
+        const closed = trades.filter(t => t.trade_state === 'CLOSED').sort((a, b) => new Date(b.entry_date) - new Date(a.entry_date));
+        if (closed.length === 0) return { type: 'NONE', count: 0 };
+
+        const firstType = closed[0].trade_status; // WIN, LOSS, BE
+        let count = 0;
+
+        for (const t of closed) {
+            if (t.trade_status === firstType) count++;
+            else break;
+        }
+
+        return { type: firstType, count };
+    }
+
     function getPerformanceSummary(trades, startingBalance) {
         const curve = calculateEquityCurve(trades, startingBalance);
         const drawdown = calculateDrawdown(curve);
@@ -176,19 +289,66 @@ const AionAnalytics = (function () {
             totalPnL: (curve[curve.length - 1]?.balance || startingBalance) - startingBalance,
             ...winRate,
             ...rrStats,
-            maxDrawdown: drawdown.maxDrawdown,
-            maxDrawdownPct: drawdown.maxDrawdownPct,
-            profitFactor: calculateProfitFactor(trades),
-            expectancy: calculateExpectancy(trades),
-            invalidCount: countInvalidTrades(trades),
+            maxDrawdown: drawdown.maxDrawdown || 0,
+            maxDrawdownPct: drawdown.maxDrawdownPct || 0,
+            profitFactor: calculateProfitFactor(trades) || 0,
+            expectancy: calculateExpectancy(trades) || 0,
+            sharpe: calculateSharpeRatio(trades) || 0,
+            sortino: calculateSortinoRatio(trades) || 0,
+            sqn: calculateSQN(trades) || 0,
+            cagr: calculateCAGR(trades, startingBalance) || 0,
+            streak: calculateStreak(trades) || { type: 'NONE', count: 0 },
+            invalidCount: countInvalidTrades(trades) || 0,
             incompleteCount: countIncompleteTrades(trades)
+        };
+    }
+
+    function calculateTimeStats(trades) {
+        const closed = trades.filter(t => t.trade_state === 'CLOSED' && (t.entry_time_utc || t.entry_date) && t.exit_time_utc);
+        if (closed.length === 0) return null;
+
+        let totalDuration = 0;
+        let winDuration = 0;
+        let lossDuration = 0;
+        let winCount = 0;
+        let lossCount = 0;
+        const buckets = { '<15m': 0, '15m-1h': 0, '1h-4h': 0, '4h-24h': 0, '>1d': 0 };
+
+        closed.forEach(t => {
+            const start = new Date(t.entry_time_utc || t.entry_date);
+            const end = new Date(t.exit_time_utc);
+            const durationHrs = (end - start) / (1000 * 60 * 60);
+
+            if (durationHrs < 0) return; // Skip invalid dates
+
+            totalDuration += durationHrs;
+
+            if (t.trade_status === 'WIN') { winDuration += durationHrs; winCount++; }
+            if (t.trade_status === 'LOSS') { lossDuration += durationHrs; lossCount++; }
+
+            if (durationHrs < 0.25) buckets['<15m']++;
+            else if (durationHrs < 1) buckets['15m-1h']++;
+            else if (durationHrs < 4) buckets['1h-4h']++;
+            else if (durationHrs < 24) buckets['4h-24h']++;
+            else buckets['>1d']++;
+        });
+
+        const totalPnL = closed.reduce((sum, t) => sum + (t.net_pl || 0), 0);
+
+        return {
+            avgHoldTime: totalDuration / closed.length,
+            avgWinHold: winCount > 0 ? winDuration / winCount : 0,
+            avgLossHold: lossCount > 0 ? lossDuration / lossCount : 0,
+            pnlPerHour: totalDuration > 0 ? totalPnL / totalDuration : 0,
+            buckets
         };
     }
 
     return {
         calculateEquityCurve, calculateDrawdown, calculateWinRate, calculateWinRateByGroup,
         calculateRRDistribution, calculateAverageRR, calculateProfitFactor, calculateExpectancy,
+        calculateSharpeRatio, calculateSortinoRatio, calculateSQN, calculateCAGR,
         getTradesByPeriod, countViolationsByRule, countInvalidTrades, countIncompleteTrades,
-        getPerformanceSummary
+        getPerformanceSummary, calculatePsychometrics, calculateStreak, calculateTimeStats
     };
 })();

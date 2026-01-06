@@ -5,79 +5,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="AION Journal OS - Institutional-Grade Trading Journal System">
+
+    <!-- Security Headers -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net 'unsafe-inline';
+        style-src 'self' 'unsafe-inline';
+        img-src 'self' data: https:;
+        connect-src 'self' https://aion-journal-os.hassanali205031.workers.dev;
+        font-src 'self';
+        object-src 'none';
+        base-uri 'self';
+        form-action 'self';
+    ">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+
     <title>AION Journal OS</title>
 
-    <!-- Inline CSS fallback for custom colors -->
-    <style>
-        :root {
-            --aion-bg: #0a0a0f;
-            --aion-card: #12121a;
-            --aion-border: #1e1e2e;
-            --aion-accent: #6366f1;
-            --aion-success: #22c55e;
-            --aion-warning: #f59e0b;
-            --aion-danger: #ef4444;
-            --aion-text: #e2e8f0;
-            --aion-muted: #64748b;
-        }
-
-        body {
-            background-color: var(--aion-bg);
-            color: var(--aion-text);
-            min-height: 100vh;
-            margin: 0;
-            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
-
-        .bg-aion-bg {
-            background-color: var(--aion-bg);
-        }
-
-        .bg-aion-card {
-            background-color: var(--aion-card);
-        }
-
-        .border-aion-border {
-            border-color: var(--aion-border);
-        }
-
-        .bg-aion-accent {
-            background-color: var(--aion-accent);
-        }
-
-        .text-aion-text {
-            color: var(--aion-text);
-        }
-
-        .text-aion-muted {
-            color: var(--aion-muted);
-        }
-
-        .text-aion-danger {
-            color: var(--aion-danger);
-        }
-
-        .text-aion-warning {
-            color: var(--aion-warning);
-        }
-
-        .text-aion-accent {
-            color: var(--aion-accent);
-        }
-
-        .bg-aion-warning\/20 {
-            background-color: rgba(245, 158, 11, 0.2);
-        }
-
-        .bg-aion-danger\/20 {
-            background-color: rgba(239, 68, 68, 0.2);
-        }
-    </style>
+    <!-- Custom CSS -->
 
     <script src="https://cdn.tailwindcss.com"></script>
-
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="styles.css">
+
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -114,23 +65,22 @@
             </div>
             <div class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium mb-2">GitHub Personal Access Token</label>
-                    <input type="password" id="pat-input" placeholder="ghp_xxxxxxxxxxxx"
+                    <label class="block text-sm font-medium mb-2">Username</label>
+                    <input type="text" id="username-input" placeholder="Enter username"
                         class="w-full bg-aion-bg border border-aion-border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-aion-accent transition">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium mb-2">Data Repository (owner/repo)</label>
-                    <input type="text" id="repo-input" placeholder="username/trading-data"
+                    <label class="block text-sm font-medium mb-2">Password</label>
+                    <input type="password" id="password-input" placeholder="Enter password"
                         class="w-full bg-aion-bg border border-aion-border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-aion-accent transition">
                 </div>
                 <button id="auth-btn"
                     class="w-full bg-aion-accent hover:bg-indigo-600 text-white font-semibold py-3 rounded-lg transition transform hover:scale-[1.02]">
-                    Connect to GitHub
+                    Login
                 </button>
                 <p id="auth-error" class="text-aion-danger text-sm text-center hidden"></p>
             </div>
-            <p class="text-aion-muted text-xs text-center mt-6">Your PAT is stored locally and never transmitted to any
-                server except GitHub.</p>
+            <p class="text-aion-muted text-xs text-center mt-6">Private Access Only. Contact Admin for credentials.</p>
         </div>
     </div>
 
@@ -150,8 +100,12 @@
                                 class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-aion-border">Trades</button>
                             <button data-page="strategies"
                                 class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-aion-border">Strategies</button>
+                            <button data-page="playbook"
+                                class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-aion-border">Playbook</button>
                             <button data-page="rules"
                                 class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-aion-border">Rules</button>
+                            <button data-page="accounts"
+                                class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-aion-border">Accounts</button>
                             <button data-page="analytics"
                                 class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition hover:bg-aion-border">Analytics</button>
                             <button data-page="control"
@@ -204,6 +158,29 @@
                     </svg>
                     <span class="text-xs">Strategies</span>
                 </button>
+                <button data-page="playbook" class="nav-btn-mobile flex flex-col items-center gap-1 p-2 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253">
+                        </path>
+                    </svg>
+                    <span class="text-xs">Playbook</span>
+                </button>
+                <button data-page="rules" class="nav-btn-mobile flex flex-col items-center gap-1 p-2 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span class="text-xs">Rules</span>
+                </button>
+                <button data-page="accounts" class="nav-btn-mobile flex flex-col items-center gap-1 p-2 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z">
+                        </path>
+                    </svg>
+                    <span class="text-xs">Accounts</span>
+                </button>
                 <button data-page="analytics" class="nav-btn-mobile flex flex-col items-center gap-1 p-2 rounded-lg">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -238,8 +215,14 @@
             <!-- Strategies Page -->
             <div id="page-strategies" class="page hidden"></div>
 
+            <!-- Playbook Page -->
+            <div id="page-playbook" class="page hidden"></div>
+
             <!-- Rules Page -->
             <div id="page-rules" class="page hidden"></div>
+
+            <!-- Accounts Page -->
+            <div id="page-accounts" class="page hidden"></div>
 
             <!-- Analytics Page -->
             <div id="page-analytics" class="page hidden"></div>
@@ -284,6 +267,8 @@
     <script src="ui/trades.js"></script>
     <script src="ui/trade_detail.js"></script>
     <script src="ui/strategies.js"></script>
+    <script src="ui/playbook.js"></script>
+    <script src="ui/accounts.js"></script>
     <script src="ui/rules.js"></script>
     <script src="ui/analytics_ui.js"></script>
     <script src="ui/control_panel.js"></script>

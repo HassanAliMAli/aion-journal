@@ -2,7 +2,7 @@
  * AION Journal OS - Global State Management
  */
 
-const AionState = (function() {
+const AionState = (function () {
     'use strict';
 
     const SCHEMA_VERSION = '1.0.0';
@@ -11,8 +11,8 @@ const AionState = (function() {
     const state = {
         isAuthenticated: false,
         userId: null,
-        pat: null,
-        repo: null,
+        userRole: null, // 'ADMIN' | 'USER'
+        displayName: null,
         currentMode: 98,
         currentPage: 'dashboard',
         selectedTradeId: null,
@@ -23,11 +23,12 @@ const AionState = (function() {
         isOnline: navigator.onLine
     };
 
+
     const listeners = new Map();
 
     function emit(event, data) {
         if (listeners.has(event)) {
-            listeners.get(event).forEach(cb => { try { cb(data); } catch(e) {} });
+            listeners.get(event).forEach(cb => { try { cb(data); } catch (e) { } });
         }
     }
 
@@ -48,30 +49,31 @@ const AionState = (function() {
         return version.split('.')[0] === SCHEMA_VERSION.split('.')[0];
     }
 
-    function setAuthenticated(userId, pat, repo) {
+    function setAuthenticated(user) {
         state.isAuthenticated = true;
-        state.userId = userId;
-        state.pat = pat;
-        state.repo = repo;
+        state.userId = user.id;
+        state.userRole = user.role;
+        state.displayName = user.username;
         saveToLocalStorage();
-        emit('auth:change', { isAuthenticated: true, userId });
+        emit('auth:change', { isAuthenticated: true, user });
     }
 
     function clearAuthentication() {
         state.isAuthenticated = false;
         state.userId = null;
-        state.pat = null;
-        state.repo = null;
+        state.userRole = null;
+        state.displayName = null;
         state.cache = {};
         saveToLocalStorage();
         emit('auth:change', { isAuthenticated: false });
     }
 
-    function isAuthenticated() { return state.isAuthenticated && state.pat && state.userId; }
+    function isAuthenticated() { return state.isAuthenticated; }
     function getUserId() { return state.userId; }
-    function getPat() { return state.pat; }
-    function getRepo() { return state.repo; }
-    function getUserDataPath() { return state.userId ? `users/${state.userId}` : null; }
+    function getUserRole() { return state.userRole; }
+    function isAdmin() { return state.userRole === 'ADMIN'; }
+
+    // Mode, Page, Cache, etc functions (same as before)
 
     function setCurrentMode(mode) {
         if (mode !== 98 && mode !== 100) throw new Error('Invalid mode');
@@ -82,6 +84,7 @@ const AionState = (function() {
 
     function getCurrentMode() { return state.currentMode; }
     function isMode100() { return state.currentMode === 100; }
+    function isReadOnly() { return state.currentMode === 100; }
 
     function setCurrentPage(page) {
         state.currentPage = page;
@@ -111,6 +114,7 @@ const AionState = (function() {
     }
 
     function getCache(key) { return state.cache[key]; }
+    function getCacheTimestamp(key) { return state.cacheTimestamps[key]; }
     function invalidateCache(key) { if (key) { delete state.cache[key]; delete state.cacheTimestamps[key]; } }
     function clearCache() { state.cache = {}; state.cacheTimestamps = {}; }
 
@@ -136,13 +140,12 @@ const AionState = (function() {
             localStorage.setItem(STORAGE_KEY, JSON.stringify({
                 isAuthenticated: state.isAuthenticated,
                 userId: state.userId,
-                pat: state.pat,
-                repo: state.repo,
+                userRole: state.userRole,
+                displayName: state.displayName,
                 currentMode: state.currentMode,
-                timezone: state.timezone,
-                pendingChanges: state.pendingChanges
+                timezone: state.timezone
             }));
-        } catch(e) {}
+        } catch (e) { }
     }
 
     function loadFromLocalStorage() {
@@ -153,15 +156,14 @@ const AionState = (function() {
                 Object.assign(state, {
                     isAuthenticated: data.isAuthenticated || false,
                     userId: data.userId || null,
-                    pat: data.pat || null,
-                    repo: data.repo || null,
+                    userRole: data.userRole || null,
+                    displayName: data.displayName || null,
                     currentMode: data.currentMode || 98,
-                    timezone: data.timezone || 'Asia/Karachi',
-                    pendingChanges: data.pendingChanges || []
+                    timezone: data.timezone || 'Asia/Karachi'
                 });
                 return true;
             }
-        } catch(e) {}
+        } catch (e) { }
         return false;
     }
 
@@ -177,13 +179,15 @@ const AionState = (function() {
     window.addEventListener('online', () => setOnlineStatus(true));
     window.addEventListener('offline', () => setOnlineStatus(false));
 
+    function getDisplayName() { return state.displayName; }
+
     return {
         on, off, emit, getSchemaVersion, isSchemaCompatible,
-        setAuthenticated, clearAuthentication, isAuthenticated, getUserId, getPat, getRepo, getUserDataPath,
-        setCurrentMode, getCurrentMode, isMode100,
+        setAuthenticated, clearAuthentication, isAuthenticated, getUserId, getUserRole, getDisplayName, isAdmin,
+        setCurrentMode, getCurrentMode, isMode100, isReadOnly,
         setCurrentPage, getCurrentPage, setSelectedTrade, getSelectedTrade,
         setTimezone, getTimezone,
-        setCache, getCache, invalidateCache, clearCache,
+        setCache, getCache, getCacheTimestamp, invalidateCache, clearCache,
         addPendingChange, getPendingChanges, removePendingChange, clearPendingChanges,
         setOnlineStatus, isOnline, loadFromLocalStorage, createMeta, updateMeta
     };

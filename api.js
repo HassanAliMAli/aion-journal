@@ -2,208 +2,154 @@
  * AION Journal OS - GitHub REST API Layer
  */
 
+/**
+ * AION Journal OS - Cloudflare Worker API Layer
+ */
+
 const AionAPI = (function () {
     'use strict';
 
-    const BASE_URL = 'https://api.github.com';
-    let rateLimitRemaining = 5000;
-    let rateLimitReset = null;
+    // CONFIGURATION: Update this to your deployed Worker URL
+    const API_BASE = 'https://aion-journal-os.hassanali205031.workers.dev/api';
 
     async function request(endpoint, options = {}) {
-        const pat = AionState.getPat();
-        if (!pat) throw new Error('Not authenticated');
-
-        const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+        const url = `${API_BASE}${endpoint}`;
         const headers = {
-            'Authorization': `Bearer ${pat}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/json',
             ...options.headers
         };
 
-        const response = await fetch(url, { ...options, headers });
+        const response = await fetch(url, { ...options, headers, credentials: 'include' });
 
-        rateLimitRemaining = parseInt(response.headers.get('X-RateLimit-Remaining') || '5000');
-        rateLimitReset = parseInt(response.headers.get('X-RateLimit-Reset') || '0');
+        if (response.status === 401) {
+            AionState.clearAuthentication();
+            throw new Error('Session expired');
+        }
 
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
-            throw new Error(error.message || `API Error: ${response.status}`);
+            throw new Error(error.error || `API Error: ${response.status}`);
         }
 
-        return response;
+        return response.json();
+    }
+
+    // --- Authentication ---
+    async function login(username, password) {
+        return request('/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
+    }
+
+    async function logout() {
+        return request('/auth/logout', { method: 'POST' });
     }
 
     async function getCurrentUser() {
-        const response = await request('/user');
-        return response.json();
+        return request('/auth/me');
     }
 
     async function validateAuth() {
         try {
-            const user = await getCurrentUser();
-            return { valid: true, userId: user.id, login: user.login };
-        } catch (e) {
-            return { valid: false, error: e.message };
+            const { user } = await getCurrentUser();
+            return { valid: true, user };
+        } catch {
+            return { valid: false };
         }
     }
 
-    async function getFile(path) {
-        const repo = AionState.getRepo();
+    // --- Data Management ---
 
-        try {
-            const response = await request(`/repos/${repo}/contents/${path}`);
-            const data = await response.json();
-            const content = JSON.parse(atob(data.content));
-            return { content, sha: data.sha, exists: true };
-        } catch (e) {
-            if (e.message.includes('404') || e.message.includes('Not Found')) {
-                return { content: null, sha: null, exists: false };
-            }
-            throw e;
-        }
+    // Configs (Rules, Setups, etc)
+    async function loadConfig(type) {
+        const { content } = await request(`/data/${type}`);
+        return { content: content || {}, exists: !!content };
     }
 
-
-
-    async function saveFile(path, content, message, existingSha = null) {
-        const repo = AionState.getRepo();
-
-        const body = {
-            message: message || `Update ${path}`,
-            content: btoa(JSON.stringify(content, null, 2)),
-            branch: 'main'
-        };
-
-        if (existingSha) body.sha = existingSha;
-
-        const response = await request(`/repos/${repo}/contents/${path}`, {
-            method: 'PUT',
-            body: JSON.stringify(body)
+    async function saveConfig(type, content) {
+        return request(`/data/${type}`, {
+            method: 'POST',
+            body: JSON.stringify(content)
         });
-
-        const data = await response.json();
-        AionState.invalidateCache(path);
-        return { sha: data.content.sha, success: true };
     }
 
-
-    async function getFileWithCache(path, cacheKey, maxAge = 60000) {
-        const cached = AionState.getCache(cacheKey);
-        if (cached && (Date.now() - (AionState.getCacheTimestamp?.(cacheKey) || 0)) < maxAge) {
-            return cached;
-        }
-
-        const result = await getFile(path);
-        if (result.exists) {
-            AionState.setCache(cacheKey, result);
-        }
-        return result;
-    }
-
-    async function initUserFolder() {
-        const userPath = AionState.getUserDataPath();
-        const folders = ['data', 'locked_100', 'control', 'ai_docs', 'readme'];
-
-        for (const folder of folders) {
-            const path = `${folder}/.gitkeep`;
-            try {
-                await getFile(path);
-            } catch {
-                await saveFile(path, '', `Initialize ${folder} folder`);
-            }
-        }
-    }
-
-    async function loadAccounts() {
-        return getFileWithCache('data/accounts.json', 'accounts');
-    }
-
-    async function saveAccounts(accounts, sha) {
-        return saveFile('data/accounts.json', accounts, 'Update accounts', sha);
-    }
-
-    async function loadRules() {
-        return getFileWithCache('data/rules.json', 'rules');
-    }
-
-    async function saveRules(rules, sha) {
-        return saveFile('data/rules.json', rules, 'Update rules', sha);
-    }
-
-    async function loadSetups() {
-        return getFileWithCache('data/playbook_setups.json', 'setups');
-    }
-
-    async function saveSetups(setups, sha) {
-        return saveFile('data/playbook_setups.json', setups, 'Update playbook setups', sha);
-    }
-
+    // Trades
     async function loadTrades() {
-        return getFileWithCache('data/trades.json', 'trades');
+        const { trades } = await request('/data/trades');
+        return { content: { trades }, exists: true };
     }
 
-    async function saveTrades(trades, sha) {
-        return saveFile('data/trades.json', trades, 'Update trades', sha);
+    async function saveTrades(trades) {
+        // 'trades' is an object { trades: [...] } coming from saveFile calls usually
+        // The API expects { trades: [...] }
+        return request('/data/trades', {
+            method: 'POST',
+            body: JSON.stringify(trades)
+        });
     }
 
-    async function loadTradeHistory() {
-        return getFileWithCache('data/trade_history.json', 'tradeHistory');
+    // Admin
+    async function getAdminUsers() {
+        const { users } = await request('/admin/users');
+        return users;
     }
 
-    async function appendTradeHistory(entry, existingHistory, sha) {
-        const history = existingHistory || { _meta: AionState.createMeta(), entries: [] };
-        history.entries.push(entry);
-        history._meta = AionState.updateMeta(history._meta);
-        return saveFile('data/trade_history.json', history, 'Append trade history', sha);
+    async function createAdminUser(username, password, role) {
+        return request('/admin/users', {
+            method: 'POST',
+            body: JSON.stringify({ username, password, role })
+        });
     }
 
-    async function loadControlPanel() {
-        return getFileWithCache('control/CONTROL_PANEL.json', 'controlPanel');
+    async function deleteAdminUser(id) {
+        return request(`/admin/users/${id}`, { method: 'DELETE' });
     }
 
-    async function saveControlPanel(panel, sha) {
-        return saveFile('control/CONTROL_PANEL.json', panel, 'Update control panel', sha);
-    }
+    // --- Mappings to Old Interface (for compatibility) ---
+    // These ensure minimal changes to UI files
 
-    async function loadUserPreferences() {
-        return getFileWithCache('control/user_preferences.json', 'userPreferences');
-    }
+    async function loadAccounts() { return loadConfig('accounts'); }
+    async function saveAccounts(data) { return saveConfig('accounts', data); }
 
-    async function saveUserPreferences(prefs, sha) {
-        return saveFile('control/user_preferences.json', prefs, 'Update user preferences', sha);
-    }
+    async function loadRules() { return loadConfig('rules'); }
+    async function saveRules(data) { return saveConfig('rules', data); }
 
-    async function loadAuditLog() {
-        return getFileWithCache('locked_100/audit_log.json', 'auditLog');
-    }
+    async function loadSetups() { return loadConfig('setups'); }
+    async function saveSetups(data) { return saveConfig('setups', data); }
 
-    async function appendAuditLog(entry, existingLog, sha) {
-        const log = existingLog || { _meta: AionState.createMeta(), entries: [], status: 'LOCKED' };
-        log.entries.push({ ...entry, timestamp_utc: new Date().toISOString() });
-        log._meta = AionState.updateMeta(log._meta);
-        return saveFile('locked_100/audit_log.json', log, 'Append audit log', sha);
-    }
+    async function loadControlPanel() { return loadConfig('control'); }
+    async function saveControlPanel(data) { return saveConfig('control', data); }
 
-    async function loadTradeContext() { return getFileWithCache('data/trade_context.json', 'tradeContext'); }
-    async function loadTradeExecution() { return getFileWithCache('data/trade_execution.json', 'tradeExecution'); }
-    async function loadTradePsychology() { return getFileWithCache('data/trade_psychology.json', 'tradePsychology'); }
-    async function loadTradeNarrative() { return getFileWithCache('data/trade_narrative.json', 'tradeNarrative'); }
-    async function loadManagementNotes() { return getFileWithCache('data/management_notes.json', 'managementNotes'); }
-    async function loadRuleViolations() { return getFileWithCache('data/rule_violations.json', 'ruleViolations'); }
+    async function loadUserPreferences() { return loadConfig('preferences'); }
+    async function saveUserPreferences(data) { return saveConfig('preferences', data); }
 
-    function getRateLimitInfo() {
-        return { remaining: rateLimitRemaining, reset: rateLimitReset };
+    // Trade History / Audit Log not fully implemented in phase 2 MVP datastore yet, mapped to generic config for now if needed, 
+    // or keep in-memory if not critical. 
+    // For now we map them to null/empty to prevent errors.
+    async function loadTradeHistory() { return { content: { entries: [] }, exists: true }; }
+    async function appendTradeHistory() { return { success: true }; }
+    async function loadAuditLog() { return { content: { entries: [] }, exists: true }; }
+    async function appendAuditLog() { return { success: true }; }
+    async function loadRuleViolations() { return { content: { violations: [] }, exists: true }; }
+
+    // Init Logic
+    async function initUserFolder() {
+        // No-op for DB
     }
 
     return {
-        validateAuth, getCurrentUser, getFile, saveFile,
-        initUserFolder, loadAccounts, saveAccounts, loadRules, saveRules,
-        loadSetups, saveSetups, loadTrades, saveTrades,
-        loadTradeHistory, appendTradeHistory, loadControlPanel, saveControlPanel,
-        loadUserPreferences, saveUserPreferences, loadAuditLog, appendAuditLog,
-        loadTradeContext, loadTradeExecution, loadTradePsychology,
-        loadTradeNarrative, loadManagementNotes, loadRuleViolations,
-        getRateLimitInfo
+        login, logout, validateAuth, getCurrentUser,
+        loadAccounts, saveAccounts,
+        loadRules, saveRules,
+        loadSetups, saveSetups,
+        loadTrades, saveTrades,
+        loadControlPanel, saveControlPanel,
+        loadUserPreferences, saveUserPreferences,
+        loadTradeHistory, appendTradeHistory,
+        loadAuditLog, appendAuditLog,
+        loadRuleViolations,
+        initUserFolder,
+        getAdminUsers, createAdminUser, deleteAdminUser
     };
 })();

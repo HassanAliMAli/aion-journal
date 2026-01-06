@@ -17,7 +17,13 @@ const AionTradeDetail = (function () {
         if (!tradeId) { AionApp.navigateTo('trades'); return; }
 
         AionState.setSelectedTrade(tradeId);
-        container.innerHTML = '<div class="skeleton h-32 mb-4"></div>'.repeat(5);
+
+        container.innerHTML = '';
+        for (let i = 0; i < 5; i++) {
+            const skel = document.createElement('div');
+            skel.className = 'skeleton h-32 mb-4';
+            container.appendChild(skel);
+        }
 
         try {
             const [tradesRes, accountsRes, setupsRes, historyRes] = await Promise.all([
@@ -31,211 +37,371 @@ const AionTradeDetail = (function () {
             setups = setupsRes.exists ? setupsRes.content.setups || [] : [];
             history = historyRes.exists ? historyRes.content.entries?.filter(h => h.trade_id === tradeId) || [] : [];
 
-            if (!currentTrade) { container.innerHTML = '<div class="alert-banner danger">Trade not found</div>'; return; }
+            container.innerHTML = ''; // Clear skeleton
 
-            container.innerHTML = `
-                <button onclick="AionApp.navigateTo('trades')" class="flex items-center gap-2 text-aion-muted hover:text-aion-text mb-4">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
-                    Back to Trades
-                </button>
-                ${renderHeader()}
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div class="lg:col-span-2 space-y-6">
-                        ${renderCoreData()}
-                        ${renderContext()}
-                        ${renderExecution()}
-                        ${renderPsychology()}
-                        ${renderNarrative()}
-                        ${renderManagement()}
-                    </div>
-                    <div class="space-y-6">
-                        ${renderStateControl()}
-                        ${renderHistory()}
-                    </div>
-                </div>
-            `;
-            setupFormListeners();
+            if (!currentTrade) {
+                const banner = document.createElement('div');
+                banner.className = 'alert-banner danger';
+                banner.textContent = 'Trade not found';
+                container.appendChild(banner);
+                return;
+            }
+
+            // Back Button
+            const backBtn = createElement('button', 'flex items-center gap-2 text-aion-muted hover:text-aion-text mb-4', 'Back to Trades');
+            // Icon
+            const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            iconSvg.setAttribute('class', 'w-5 h-5');
+            iconSvg.setAttribute('fill', 'none');
+            iconSvg.setAttribute('stroke', 'currentColor');
+            iconSvg.setAttribute('viewBox', '0 0 24 24');
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('stroke-linecap', 'round');
+            path.setAttribute('stroke-linejoin', 'round');
+            path.setAttribute('stroke-width', '2');
+            path.setAttribute('d', 'M10 19l-7-7m0 0l7-7m-7 7h18');
+            iconSvg.appendChild(path);
+            backBtn.prepend(iconSvg);
+            backBtn.onclick = () => AionApp.navigateTo('trades');
+            container.appendChild(backBtn);
+
+            if (AionState.isReadOnly()) {
+                const banner = document.createElement('div');
+                banner.className = 'alert-banner warning mb-6';
+                banner.textContent = 'Trade editing disabled in Audit Mode';
+                container.appendChild(banner);
+            }
+
+            container.appendChild(renderHeader());
+
+            const grid = createElement('div', 'grid grid-cols-1 lg:grid-cols-3 gap-6');
+
+            const leftCol = createElement('div', 'lg:col-span-2 space-y-6');
+            leftCol.appendChild(renderCoreData());
+            leftCol.appendChild(renderContext());
+            leftCol.appendChild(renderExecution());
+            leftCol.appendChild(renderPsychology());
+            leftCol.appendChild(renderNarrative());
+            leftCol.appendChild(renderManagement());
+            grid.appendChild(leftCol);
+
+            const rightCol = createElement('div', 'space-y-6');
+            rightCol.appendChild(renderStateControl());
+            rightCol.appendChild(renderHistory());
+            grid.appendChild(rightCol);
+
+            container.appendChild(grid);
+
+            if (AionState.isReadOnly()) {
+                container.querySelectorAll('input, select, textarea, button.aion-btn-primary, button.aion-btn-secondary').forEach(el => {
+                    if (!el.textContent.includes('Back')) el.disabled = true;
+                });
+            } else {
+                setupFormListeners();
+            }
         } catch (e) {
-            container.innerHTML = `<div class="alert-banner danger">Failed to load trade: ${e.message}</div>`;
+            container.innerHTML = '';
+            const banner = document.createElement('div');
+            banner.className = 'alert-banner danger';
+            banner.textContent = `Failed to load trade: ${e.message}`;
+            container.appendChild(banner);
         }
+    }
+
+    function createElement(tag, className, text) {
+        const el = document.createElement(tag);
+        if (className) el.className = className;
+        if (text) el.textContent = text;
+        return el;
     }
 
     function renderHeader() {
+        const card = createElement('div', 'aion-card mb-6');
+        const topRow = createElement('div', 'flex flex-wrap items-center justify-between gap-4');
+
+        const infoDiv = createElement('div', 'flex items-center gap-4');
+        infoDiv.appendChild(createElement('span', 'text-2xl font-mono font-bold text-aion-accent', currentTrade.trade_id));
+        infoDiv.appendChild(createElement('span', `state-badge state-${currentTrade.trade_state.toLowerCase()}`, currentTrade.trade_state));
+        infoDiv.appendChild(createElement('span', `state-badge status-${(currentTrade.trade_status || 'pending').toLowerCase()}`, currentTrade.trade_status || 'PENDING'));
+        topRow.appendChild(infoDiv);
+
+        const actionDiv = createElement('div', 'flex gap-2');
+        const saveBtn = createElement('button', 'aion-btn aion-btn-primary', 'Save Changes');
+        saveBtn.onclick = saveTrade;
+        actionDiv.appendChild(saveBtn);
+        topRow.appendChild(actionDiv);
+        card.appendChild(topRow);
+
+        const nameSection = createElement('div', 'mt-4');
+        nameSection.appendChild(createElement('label', 'block text-sm font-medium mb-2', 'Trade Name'));
+        const inputGroup = createElement('div', 'flex gap-2');
+
+        const nameInput = createElement('input', 'aion-input flex-1');
+        nameInput.type = 'text';
+        nameInput.id = 'trade-name';
+        nameInput.value = currentTrade.trade_name || '';
+        nameInput.placeholder = 'e.g., EURUSD London Long BOS';
+        inputGroup.appendChild(nameInput);
+
+        const dropdownWrapper = createElement('div', 'relative');
+        const builderBtn = createElement('button', 'aion-btn aion-btn-secondary');
+        builderBtn.title = 'Name Builder';
+        builderBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>'; // Icon innerHTML safe (static)
+
+        const dropdown = createElement('div', 'hidden absolute right-0 top-full mt-1 w-64 bg-aion-card border border-aion-border rounded-lg shadow-xl z-10');
+        dropdown.id = 'name-builder-dropdown';
+        builderBtn.onclick = () => dropdown.classList.toggle('hidden');
+
+        dropdown.appendChild(createElement('div', 'p-2 text-xs text-aion-muted border-b border-aion-border', 'Quick Name Builder'));
+        const optionsContainer = createElement('div', 'p-2 flex flex-col gap-1');
+
         const nameOptions = typeof AionMarketEngine !== 'undefined'
             ? AionMarketEngine.generateTradeNameOptions(currentTrade, setups)
             : [];
-        const optionsHtml = nameOptions.map(opt =>
-            `<button onclick="document.getElementById('trade-name').value='${opt}'" class="text-left px-3 py-2 hover:bg-aion-border rounded text-sm">${opt}</button>`
-        ).join('');
 
-        return `
-            <div class="aion-card mb-6">
-                <div class="flex flex-wrap items-center justify-between gap-4">
-                    <div class="flex items-center gap-4">
-                        <span class="text-2xl font-mono font-bold text-aion-accent">${currentTrade.trade_id}</span>
-                        <span class="state-badge state-${currentTrade.trade_state.toLowerCase()}">${currentTrade.trade_state}</span>
-                        <span class="state-badge status-${(currentTrade.trade_status || 'pending').toLowerCase()}">${currentTrade.trade_status || 'PENDING'}</span>
-                    </div>
-                    <div class="flex gap-2">
-                        <button onclick="AionTradeDetail.saveTrade()" class="aion-btn aion-btn-primary">Save Changes</button>
-                    </div>
-                </div>
-                <div class="mt-4">
-                    <label class="block text-sm font-medium mb-2">Trade Name</label>
-                    <div class="flex gap-2">
-                        <input type="text" id="trade-name" value="${currentTrade.trade_name || ''}" placeholder="e.g., EURUSD London Long BOS" class="aion-input flex-1">
-                        <div class="relative">
-                            <button onclick="document.getElementById('name-builder-dropdown').classList.toggle('hidden')" class="aion-btn aion-btn-secondary" title="Name Builder">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                            </button>
-                            <div id="name-builder-dropdown" class="hidden absolute right-0 top-full mt-1 w-64 bg-aion-card border border-aion-border rounded-lg shadow-xl z-10">
-                                <div class="p-2 text-xs text-aion-muted border-b border-aion-border">Quick Name Builder</div>
-                                <div class="p-2 flex flex-col gap-1">
-                                    ${optionsHtml || '<p class="text-xs text-aion-muted p-2">Fill instrument, direction, session first</p>'}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
+        if (nameOptions.length > 0) {
+            nameOptions.forEach(opt => {
+                const b = createElement('button', 'text-left px-3 py-2 hover:bg-aion-border rounded text-sm', opt);
+                b.onclick = () => { document.getElementById('trade-name').value = opt; dropdown.classList.add('hidden'); };
+                optionsContainer.appendChild(b);
+            });
+        } else {
+            optionsContainer.appendChild(createElement('p', 'text-xs text-aion-muted p-2', 'Fill instrument, direction, session first'));
+        }
+        dropdown.appendChild(optionsContainer);
+
+        dropdownWrapper.appendChild(builderBtn);
+        dropdownWrapper.appendChild(dropdown);
+        inputGroup.appendChild(dropdownWrapper);
+        nameSection.appendChild(inputGroup);
+        card.appendChild(nameSection);
+
+        return card;
     }
 
+    function createFormGroup(label, element) {
+        const div = createElement('div');
+        div.appendChild(createElement('label', 'block text-sm font-medium mb-1', label));
+        div.appendChild(element);
+        return div;
+    }
 
     function renderCoreData() {
-        const accountOpts = accounts.map(a => `<option value="${a.account_id}" ${currentTrade.account_id === a.account_id ? 'selected' : ''}>${a.trader_name} (${a.platform})</option>`).join('');
-        const setupOpts = setups.filter(s => s.setup_status === 'ACTIVE').map(s => `<option value="${s.setup_id}" ${currentTrade.setup_id === s.setup_id ? 'selected' : ''}>${s.setup_name}</option>`).join('');
+        const card = createElement('div', 'aion-card');
+        card.appendChild(createElement('h3', 'section-title mb-4', 'Core Trade Data'));
+        const grid = createElement('div', 'grid grid-cols-2 md:grid-cols-3 gap-4');
 
-        return `
-            <div class="aion-card">
-                <h3 class="section-title mb-4">Core Trade Data</h3>
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <div><label class="block text-sm font-medium mb-1">Account</label><select id="trade-account" class="aion-input aion-select"><option value="">Select...</option>${accountOpts}</select></div>
-                    <div><label class="block text-sm font-medium mb-1">Setup</label><select id="trade-setup" class="aion-input aion-select"><option value="">Select...</option>${setupOpts}</select></div>
-                    <div><label class="block text-sm font-medium mb-1">Market Type</label><select id="trade-market" class="aion-input aion-select"><option value="">Select...</option>${AionValidators.MARKET_TYPES.map(m => `<option value="${m}" ${currentTrade.market_type === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
-                    <div><label class="block text-sm font-medium mb-1">Instrument</label><input type="text" id="trade-instrument" value="${currentTrade.instrument || ''}" class="aion-input" placeholder="e.g., EURUSD"></div>
-                    <div><label class="block text-sm font-medium mb-1">Direction</label><select id="trade-direction" class="aion-input aion-select"><option value="">Select...</option>${AionValidators.DIRECTIONS.map(d => `<option value="${d}" ${currentTrade.direction === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
-                    <div><label class="block text-sm font-medium mb-1">Session</label><select id="trade-session" class="aion-input aion-select"><option value="">Select...</option>${AionValidators.SESSIONS.map(s => `<option value="${s}" ${currentTrade.session === s ? 'selected' : ''}>${s.replace(/_/g, ' ')}</option>`).join('')}</select></div>
-                    <div><label class="block text-sm font-medium mb-1">Entry Type</label><select id="trade-entry-type" class="aion-input aion-select"><option value="">Select...</option>${AionValidators.ENTRY_TYPES.map(e => `<option value="${e}" ${currentTrade.entry_type === e ? 'selected' : ''}>${e}</option>`).join('')}</select></div>
-                    <div><label class="block text-sm font-medium mb-1">Planned Entry</label><input type="number" step="any" id="trade-planned-entry" value="${currentTrade.planned_entry_price || ''}" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">Actual Entry</label><input type="number" step="any" id="trade-actual-entry" value="${currentTrade.actual_entry_price || ''}" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">Stop Loss</label><input type="number" step="any" id="trade-sl" value="${currentTrade.stop_loss || ''}" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">Take Profit</label><input type="number" step="any" id="trade-tp" value="${currentTrade.take_profit || ''}" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">Risk %</label><input type="number" step="0.01" id="trade-risk-pct" value="${currentTrade.risk_pct || ''}" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">USD Risk</label><input type="number" step="0.01" id="trade-usd-risk" value="${currentTrade.usd_risk || ''}" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">Planned RR</label><input type="text" id="trade-planned-rr" value="${currentTrade.planned_rr || ''}" class="aion-input" readonly></div>
-                    <div><label class="block text-sm font-medium mb-1">Exit Type</label><select id="trade-exit-type" class="aion-input aion-select"><option value="">Select...</option>${AionValidators.EXIT_TYPES.map(e => `<option value="${e}" ${currentTrade.exit_type === e ? 'selected' : ''}>${e}</option>`).join('')}</select></div>
-                    <div><label class="block text-sm font-medium mb-1">Exit Price</label><input type="number" step="any" id="trade-exit-price" value="${currentTrade.exit_price || ''}" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">Net P&L</label><input type="number" step="0.01" id="trade-net-pl" value="${currentTrade.net_pl || ''}" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">Actual RR</label><input type="text" id="trade-actual-rr" value="${currentTrade.actual_rr || ''}" class="aion-input" readonly></div>
-                </div>
-            </div>
-        `;
+        // Factory for selects
+        const createSelect = (id, options, selectedVal) => {
+            const s = createElement('select', 'aion-input aion-select');
+            s.id = id;
+            s.appendChild(createElement('option', '', 'Select...'));
+            options.forEach(o => {
+                const opt = createElement('option', '', o.label);
+                opt.value = o.value;
+                if (o.value === selectedVal) opt.selected = true;
+                s.appendChild(opt);
+            });
+            return s;
+        };
+
+        // Factory for inputs
+        const createInput = (id, type, val, placeholder, step, readonly) => {
+            const i = createElement('input', 'aion-input');
+            i.id = id;
+            i.type = type;
+            if (val !== undefined && val !== null) i.value = val;
+            if (placeholder) i.placeholder = placeholder;
+            if (step) i.step = step;
+            if (readonly) i.readOnly = true;
+            return i;
+        };
+
+        grid.appendChild(createFormGroup('Account', createSelect('trade-account', accounts.map(a => ({ value: a.account_id, label: `${a.trader_name} (${a.platform})` })), currentTrade.account_id)));
+        grid.appendChild(createFormGroup('Setup', createSelect('trade-setup', setups.filter(s => s.setup_status === 'ACTIVE').map(s => ({ value: s.setup_id, label: s.setup_name })), currentTrade.setup_id)));
+        grid.appendChild(createFormGroup('Market Type', createSelect('trade-market', AionValidators.MARKET_TYPES.map(m => ({ value: m, label: m })), currentTrade.market_type)));
+        grid.appendChild(createFormGroup('Instrument', createInput('trade-instrument', 'text', currentTrade.instrument, 'e.g., EURUSD')));
+        grid.appendChild(createFormGroup('Direction', createSelect('trade-direction', AionValidators.DIRECTIONS.map(d => ({ value: d, label: d })), currentTrade.direction)));
+        grid.appendChild(createFormGroup('Session', createSelect('trade-session', AionValidators.SESSIONS.map(s => ({ value: s, label: s.replace(/_/g, ' ') })), currentTrade.session)));
+        grid.appendChild(createFormGroup('Entry Type', createSelect('trade-entry-type', AionValidators.ENTRY_TYPES.map(e => ({ value: e, label: e })), currentTrade.entry_type)));
+
+        grid.appendChild(createFormGroup('Planned Entry', createInput('trade-planned-entry', 'number', currentTrade.planned_entry_price, '', 'any')));
+        grid.appendChild(createFormGroup('Actual Entry', createInput('trade-actual-entry', 'number', currentTrade.actual_entry_price, '', 'any')));
+        grid.appendChild(createFormGroup('Stop Loss', createInput('trade-sl', 'number', currentTrade.stop_loss, '', 'any')));
+        grid.appendChild(createFormGroup('Take Profit', createInput('trade-tp', 'number', currentTrade.take_profit, '', 'any')));
+        grid.appendChild(createFormGroup('Risk %', createInput('trade-risk-pct', 'number', currentTrade.risk_pct, '', '0.01')));
+        grid.appendChild(createFormGroup('USD Risk', createInput('trade-usd-risk', 'number', currentTrade.usd_risk, '', '0.01')));
+        grid.appendChild(createFormGroup('Planned RR', createInput('trade-planned-rr', 'text', currentTrade.planned_rr, '', '', true)));
+
+        grid.appendChild(createFormGroup('Exit Type', createSelect('trade-exit-type', AionValidators.EXIT_TYPES.map(e => ({ value: e, label: e })), currentTrade.exit_type)));
+        grid.appendChild(createFormGroup('Exit Price', createInput('trade-exit-price', 'number', currentTrade.exit_price, '', 'any')));
+        grid.appendChild(createFormGroup('Net P&L', createInput('trade-net-pl', 'number', currentTrade.net_pl, '', '0.01')));
+        grid.appendChild(createFormGroup('Actual RR', createInput('trade-actual-rr', 'text', currentTrade.actual_rr, '', '', true)));
+
+        card.appendChild(grid);
+        return card;
     }
 
     function renderContext() {
-        return `
-            <div class="aion-card">
-                <h3 class="section-title mb-4">Trade Context</h3>
-                <div class="space-y-4">
-                    <div><label class="block text-sm font-medium mb-1">Higher TF Bias</label><input type="text" id="trade-htf-bias" value="" class="aion-input" placeholder="e.g., Bullish on H4"></div>
-                    <div><label class="block text-sm font-medium mb-1">Market Structure</label><textarea id="trade-market-structure" class="aion-input aion-textarea" placeholder="Describe the market structure..."></textarea></div>
-                    <div><label class="block text-sm font-medium mb-1">Liquidity Context</label><textarea id="trade-liquidity" class="aion-input aion-textarea" placeholder="Describe liquidity zones..."></textarea></div>
-                    <div><label class="block text-sm font-medium mb-1">External Chart Links</label><input type="url" id="trade-chart-link" class="aion-input" placeholder="https://www.tradingview.com/..."></div>
-                </div>
-            </div>
-        `;
+        const card = createElement('div', 'aion-card');
+        card.appendChild(createElement('h3', 'section-title mb-4', 'Trade Context'));
+        const stack = createElement('div', 'space-y-4');
+
+        const mkInput = (id, val, ph) => { const i = createElement('input', 'aion-input'); i.id = id; i.type = 'text'; i.value = val || ''; i.placeholder = ph; return i; };
+        const mkText = (id, val, ph) => { const t = createElement('textarea', 'aion-input aion-textarea'); t.id = id; t.value = val || ''; t.placeholder = ph; return t; };
+
+        stack.appendChild(createFormGroup('Higher TF Bias', mkInput('trade-htf-bias', currentTrade.htf_bias, 'e.g., Bullish on H4')));
+        stack.appendChild(createFormGroup('Market Structure', mkText('trade-market-structure', currentTrade.market_structure, 'Describe the market structure...')));
+        stack.appendChild(createFormGroup('Liquidity Context', mkText('trade-liquidity', currentTrade.liquidity_context, 'Describe liquidity zones...')));
+
+        const linkInp = mkInput('trade-chart-link', currentTrade.chart_link, 'https://www.tradingview.com/...');
+        linkInp.type = 'url';
+        stack.appendChild(createFormGroup('External Chart Links', linkInp));
+
+        card.appendChild(stack);
+        return card;
     }
 
     function renderExecution() {
-        return `
-            <div class="aion-card">
-                <h3 class="section-title mb-4">Execution Quality</h3>
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <div><label class="block text-sm font-medium mb-1">Slippage (pips)</label><input type="number" step="0.1" id="trade-slippage" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">Spread</label><input type="number" step="0.1" id="trade-spread" class="aion-input"></div>
-                    <div><label class="block text-sm font-medium mb-1">News Nearby</label><select id="trade-news" class="aion-input aion-select"><option value="">Select...</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
-                </div>
-                <div class="mt-4"><label class="block text-sm font-medium mb-1">Execution Notes</label><textarea id="trade-exec-notes" class="aion-input aion-textarea" placeholder="Notes about execution..."></textarea></div>
-            </div>
-        `;
+        const card = createElement('div', 'aion-card');
+        card.appendChild(createElement('h3', 'section-title mb-4', 'Execution Quality'));
+        const grid = createElement('div', 'grid grid-cols-2 md:grid-cols-3 gap-4');
+
+        const mkNum = (id, val) => { const i = createElement('input', 'aion-input'); i.id = id; i.type = 'number'; i.step = '0.1'; if (val) i.value = val; return i; };
+
+        grid.appendChild(createFormGroup('Slippage (pips)', mkNum('trade-slippage', currentTrade.slippage)));
+        grid.appendChild(createFormGroup('Spread', mkNum('trade-spread', currentTrade.spread)));
+
+        const newsSel = createElement('select', 'aion-input aion-select');
+        newsSel.id = 'trade-news';
+        ['', 'Yes', 'No'].forEach(v => { const o = createElement('option', '', v || 'Select...'); o.value = v; if (currentTrade.news_event === v) o.selected = true; newsSel.appendChild(o); });
+        grid.appendChild(createFormGroup('News Nearby', newsSel));
+
+        card.appendChild(grid);
+
+        const noteDiv = createElement('div', 'mt-4');
+        const notes = createElement('textarea', 'aion-input aion-textarea');
+        notes.id = 'trade-exec-notes';
+        notes.placeholder = 'Notes about execution...';
+        notes.value = currentTrade.execution_notes || '';
+        noteDiv.appendChild(createFormGroup('Execution Notes', notes));
+        card.appendChild(noteDiv);
+
+        return card;
     }
 
     function renderPsychology() {
-        return `
-            <div class="aion-card">
-                <h3 class="section-title mb-4">Psychology</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label class="block text-sm font-medium mb-1">Pre-Trade Emotion</label><select id="trade-pre-emotion" class="aion-input aion-select"><option value="">Select...</option>${AionValidators.EMOTIONS.map(e => `<option value="${e}">${e}</option>`).join('')}</select></div>
-                    <div><label class="block text-sm font-medium mb-2">Pre-Trade Intensity</label><input type="range" min="1" max="10" value="5" id="trade-pre-intensity" class="emotion-slider w-full"></div>
-                    <div><label class="block text-sm font-medium mb-1">During Trade Emotion</label><select id="trade-during-emotion" class="aion-input aion-select"><option value="">Select...</option>${AionValidators.EMOTIONS.map(e => `<option value="${e}">${e}</option>`).join('')}</select></div>
-                    <div><label class="block text-sm font-medium mb-2">During Intensity</label><input type="range" min="1" max="10" value="5" id="trade-during-intensity" class="emotion-slider w-full"></div>
-                    <div><label class="block text-sm font-medium mb-1">Post-Trade Emotion</label><select id="trade-post-emotion" class="aion-input aion-select"><option value="">Select...</option>${AionValidators.EMOTIONS.map(e => `<option value="${e}">${e}</option>`).join('')}</select></div>
-                    <div><label class="block text-sm font-medium mb-1">Confidence Score (1-10)</label><input type="number" min="1" max="10" id="trade-confidence" class="aion-input"></div>
-                </div>
-            </div>
-        `;
+        const card = createElement('div', 'aion-card');
+        card.appendChild(createElement('h3', 'section-title mb-4', 'Psychology'));
+        const grid = createElement('div', 'grid grid-cols-1 md:grid-cols-2 gap-4');
+
+        const mkSel = (id, val) => {
+            const s = createElement('select', 'aion-input aion-select');
+            s.id = id;
+            s.appendChild(createElement('option', '', 'Select...'));
+            AionValidators.EMOTIONS.forEach(e => { const o = createElement('option', '', e); o.value = e; if (val === e) o.selected = true; s.appendChild(o); });
+            return s;
+        };
+
+        const mkRange = (id, val) => {
+            const i = createElement('input', 'emotion-slider w-full');
+            i.id = id; i.type = 'range'; i.min = 1; i.max = 10; i.value = val || 5;
+            return i;
+        };
+
+        grid.appendChild(createFormGroup('Pre-Trade Emotion', mkSel('trade-pre-emotion', currentTrade.pre_trade_emotion)));
+        grid.appendChild(createFormGroup('Pre-Trade Intensity', mkRange('trade-pre-intensity', currentTrade.pre_trade_intensity)));
+        grid.appendChild(createFormGroup('During Trade Emotion', mkSel('trade-during-emotion', currentTrade.during_trade_emotion)));
+        grid.appendChild(createFormGroup('During Intensity', mkRange('trade-during-intensity', currentTrade.during_trade_intensity)));
+        grid.appendChild(createFormGroup('Post-Trade Emotion', mkSel('trade-post-emotion', currentTrade.post_trade_emotion)));
+
+        const conf = createElement('input', 'aion-input');
+        conf.type = 'number'; conf.min = 1; conf.max = 10; conf.id = 'trade-confidence'; conf.value = currentTrade.confidence_score || '';
+        grid.appendChild(createFormGroup('Confidence Score (1-10)', conf));
+
+        card.appendChild(grid);
+        return card;
     }
 
     function renderNarrative() {
-        return `
-            <div class="aion-card">
-                <h3 class="section-title mb-4">Raw Narrative</h3>
-                <p class="text-xs text-aion-muted mb-2">This field is NEVER edited by AI. Write your raw thoughts here.</p>
-                <textarea id="trade-narrative" class="aion-input min-h-[200px]" placeholder="Write your complete trade narrative here..."></textarea>
-            </div>
-        `;
+        const card = createElement('div', 'aion-card');
+        card.appendChild(createElement('h3', 'section-title mb-4', 'Raw Narrative'));
+        card.appendChild(createElement('p', 'text-xs text-aion-muted mb-2', 'This field is NEVER edited by AI. Write your raw thoughts here.'));
+        const t = createElement('textarea', 'aion-input min-h-[200px]');
+        t.id = 'trade-narrative';
+        t.placeholder = 'Write your complete trade narrative here...';
+        t.value = currentTrade.raw_narrative_text || '';
+        card.appendChild(t);
+        return card;
     }
 
     function renderManagement() {
-        return `
-            <div class="aion-card">
-                <h3 class="section-title mb-4">Management Notes</h3>
-                <p class="text-xs text-aion-muted mb-2">Human notes about trade management. AI summaries allowed here.</p>
-                <textarea id="trade-management" class="aion-input min-h-[120px]" placeholder="Notes about how you managed this trade..."></textarea>
-            </div>
-        `;
+        const card = createElement('div', 'aion-card');
+        card.appendChild(createElement('h3', 'section-title mb-4', 'Management Notes'));
+        card.appendChild(createElement('p', 'text-xs text-aion-muted mb-2', 'Human notes about trade management. AI summaries allowed here.'));
+        const t = createElement('textarea', 'aion-input min-h-[120px]');
+        t.id = 'trade-management';
+        t.placeholder = 'Notes about how you managed this trade...';
+        t.value = currentTrade.management_notes || '';
+        card.appendChild(t);
+        return card;
     }
 
     function renderStateControl() {
+        const card = createElement('div', 'aion-card');
+        card.appendChild(createElement('h3', 'section-title mb-4', 'State Control'));
+        const stack = createElement('div', 'space-y-4');
+
+        const currentDiv = createElement('div', 'flex items-center gap-2');
+        currentDiv.appendChild(createElement('span', 'text-sm', 'Current:'));
+        currentDiv.appendChild(createElement('span', `state-badge state-${currentTrade.trade_state.toLowerCase()}`, currentTrade.trade_state));
+        stack.appendChild(currentDiv);
+
         const transitions = { DRAFT: ['PLANNED'], PLANNED: ['OPEN', 'MISSED'], OPEN: ['CLOSED'], INCOMPLETE: ['DRAFT'], INVALID: ['DRAFT'] };
         const available = transitions[currentTrade.trade_state] || [];
 
-        const buttons = available.map(state =>
-            `<button onclick="AionTradeDetail.transitionState('${state}')" class="aion-btn aion-btn-secondary flex-1">${state}</button>`
-        ).join('');
-
-        return `
-            <div class="aion-card">
-                <h3 class="section-title mb-4">State Control</h3>
-                <div class="space-y-4">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm">Current:</span>
-                        <span class="state-badge state-${currentTrade.trade_state.toLowerCase()}">${currentTrade.trade_state}</span>
-                    </div>
-                    ${buttons.length > 0 ? `<div class="flex gap-2">${buttons}</div>` : '<p class="text-sm text-aion-muted">No transitions available</p>'}
-                </div>
-            </div>
-        `;
+        if (available.length > 0) {
+            const btnGroup = createElement('div', 'flex gap-2');
+            available.forEach(state => {
+                const b = createElement('button', 'aion-btn aion-btn-secondary flex-1', state);
+                b.onclick = () => transitionState(state);
+                btnGroup.appendChild(b);
+            });
+            stack.appendChild(btnGroup);
+        } else {
+            stack.appendChild(createElement('p', 'text-sm text-aion-muted', 'No transitions available'));
+        }
+        card.appendChild(stack);
+        return card;
     }
 
     function renderHistory() {
+        const card = createElement('div', 'aion-card');
+        card.appendChild(createElement('h3', 'section-title mb-4', 'History'));
+
         if (history.length === 0) {
-            return `<div class="aion-card"><h3 class="section-title mb-4">History</h3><p class="text-sm text-aion-muted">No changes recorded yet</p></div>`;
+            card.appendChild(createElement('p', 'text-sm text-aion-muted', 'No changes recorded yet'));
+        } else {
+            const stack = createElement('div', 'space-y-2');
+            history.slice(-10).reverse().forEach(h => {
+                const item = createElement('div', 'history-item');
+                item.appendChild(createElement('div', 'history-item-time', AionApp.formatDate(h.timestamp_utc, 'full')));
+                const content = createElement('div', 'history-item-content');
+
+                const fieldSpan = createElement('span', 'font-medium', h.field_changed);
+                content.appendChild(fieldSpan);
+                content.appendChild(document.createTextNode(`: ${h.old_value || 'empty'} → ${h.new_value}`));
+
+                item.appendChild(content);
+                stack.appendChild(item);
+            });
+            card.appendChild(stack);
         }
-
-        const items = history.slice(-10).reverse().map(h => `
-            <div class="history-item">
-                <div class="history-item-time">${AionApp.formatDate(h.timestamp_utc, 'full')}</div>
-                <div class="history-item-content"><span class="font-medium">${h.field_changed}</span>: ${h.old_value || 'empty'} → ${h.new_value}</div>
-            </div>
-        `).join('');
-
-        return `<div class="aion-card"><h3 class="section-title mb-4">History</h3><div class="space-y-2">${items}</div></div>`;
+        return card;
     }
 
     function setupFormListeners() {
-        const priceFields = ['trade-planned-entry', 'trade-actual-entry', 'trade-sl', 'trade-tp'];
+        const priceFields = ['trade-planned-entry', 'trade-actual-entry', 'trade-sl', 'trade-tp', 'trade-exit-price', 'trade-direction'];
         priceFields.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', recalculateRR);
@@ -271,8 +437,12 @@ const AionTradeDetail = (function () {
 
             const historyEntries = [];
             Object.keys(changes).forEach(key => {
-                if (trades[idx][key] !== changes[key]) {
-                    historyEntries.push({ trade_id: currentTrade.trade_id, field_changed: key, old_value: String(trades[idx][key] || ''), new_value: String(changes[key] || ''), timestamp_utc: new Date().toISOString(), changed_by: AionState.getUserId() });
+                // loose comparison for numbers/strings overlap often found in forms
+                if (String(trades[idx][key]) !== String(changes[key])) {
+                    // Only record if actual change
+                    if (trades[idx][key] !== changes[key] && (trades[idx][key] || changes[key])) {
+                        historyEntries.push({ trade_id: currentTrade.trade_id, field_changed: key, old_value: String(trades[idx][key] || ''), new_value: String(changes[key] || ''), timestamp_utc: new Date().toISOString(), changed_by: AionState.getUserId() });
+                    }
                 }
             });
 
@@ -305,26 +475,53 @@ const AionTradeDetail = (function () {
     }
 
     function collectFormData() {
+        // Read raw values first
+        const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
+        const sl = parseFloat(document.getElementById('trade-sl')?.value);
+        const tp = parseFloat(document.getElementById('trade-tp')?.value);
+        const exit = parseFloat(document.getElementById('trade-exit-price')?.value);
+        const direction = document.getElementById('trade-direction')?.value;
+
+        // Calculate derived values directly to avoid UI staleness
+        const plannedRR = AionValidators.calculateRR(entry, sl, tp, direction);
+        const actualRR = AionValidators.calculateActualRR(entry, sl, exit, direction);
+
         return {
             trade_name: document.getElementById('trade-name')?.value || '',
             account_id: document.getElementById('trade-account')?.value || null,
             setup_id: document.getElementById('trade-setup')?.value || null,
             market_type: document.getElementById('trade-market')?.value || null,
             instrument: document.getElementById('trade-instrument')?.value || null,
-            direction: document.getElementById('trade-direction')?.value || null,
+            direction: direction || null,
             session: document.getElementById('trade-session')?.value || null,
             entry_type: document.getElementById('trade-entry-type')?.value || null,
             planned_entry_price: parseFloat(document.getElementById('trade-planned-entry')?.value) || null,
             actual_entry_price: parseFloat(document.getElementById('trade-actual-entry')?.value) || null,
-            stop_loss: parseFloat(document.getElementById('trade-sl')?.value) || null,
-            take_profit: parseFloat(document.getElementById('trade-tp')?.value) || null,
+            stop_loss: sl || null,
+            take_profit: tp || null,
             risk_pct: parseFloat(document.getElementById('trade-risk-pct')?.value) || null,
             usd_risk: parseFloat(document.getElementById('trade-usd-risk')?.value) || null,
             exit_type: document.getElementById('trade-exit-type')?.value || null,
-            exit_price: parseFloat(document.getElementById('trade-exit-price')?.value) || null,
+            exit_price: exit || null,
             net_pl: parseFloat(document.getElementById('trade-net-pl')?.value) || null,
-            planned_rr: parseFloat(document.getElementById('trade-planned-rr')?.value) || null,
-            actual_rr: parseFloat(document.getElementById('trade-actual-rr')?.value?.replace('R', '')) || null
+            planned_rr: plannedRR,
+            actual_rr: actualRR,
+            pre_trade_emotion: document.getElementById('trade-pre-emotion')?.value || null,
+            pre_trade_intensity: parseInt(document.getElementById('trade-pre-intensity')?.value) || null,
+            during_trade_emotion: document.getElementById('trade-during-emotion')?.value || null,
+            during_trade_intensity: parseInt(document.getElementById('trade-during-intensity')?.value) || null,
+            post_trade_emotion: document.getElementById('trade-post-emotion')?.value || null,
+            confidence_score: parseInt(document.getElementById('trade-confidence')?.value) || null,
+            htf_bias: document.getElementById('trade-htf-bias')?.value || '',
+            market_structure: document.getElementById('trade-market-structure')?.value || '',
+            liquidity_context: document.getElementById('trade-liquidity')?.value || '',
+            chart_link: document.getElementById('trade-chart-link')?.value || '',
+            slippage: parseFloat(document.getElementById('trade-slippage')?.value) || null,
+            spread: parseFloat(document.getElementById('trade-spread')?.value) || null,
+            news_event: document.getElementById('trade-news')?.value || null,
+            execution_notes: document.getElementById('trade-exec-notes')?.value || '',
+            raw_narrative_text: document.getElementById('trade-narrative')?.value || '',
+            management_notes: document.getElementById('trade-management')?.value || ''
         };
     }
 
@@ -334,6 +531,7 @@ const AionTradeDetail = (function () {
 
         AionApp.showConfirm('Confirm State Change', `Change state from ${currentTrade.trade_state} to ${newState}?`, async () => {
             currentTrade.trade_state = newState;
+            if (newState === 'OPEN' && !currentTrade.entry_time_utc) currentTrade.entry_time_utc = new Date().toISOString();
             if (newState === 'CLOSED') currentTrade.exit_time_utc = new Date().toISOString();
             await saveTrade();
         });
