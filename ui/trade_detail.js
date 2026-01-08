@@ -230,14 +230,34 @@ const AionTradeDetail = (function () {
         marketSelect.addEventListener('change', () => {
             // Re-render the entire page to update dynamic fields
             currentTrade.market_type = marketSelect.value;
+            currentTrade.instrument = null; // Reset instrument when market changes
             render(currentTrade.trade_id);
         });
         grid.appendChild(createFormGroup('Market Type', marketSelect));
 
-        grid.appendChild(createFormGroup('Instrument', createInput('trade-instrument', 'text', currentTrade.instrument, 'e.g., EURUSD')));
+        // Instrument dropdown (market-specific)
+        const instruments = AionMarketData.getInstruments(marketType);
+        const instrumentSelect = createSelect('trade-instrument', instruments.map(i => ({ value: i.value, label: i.label })), currentTrade.instrument);
+        instrumentSelect.addEventListener('change', () => {
+            // Auto-fill pip value when instrument changes
+            const selectedInstrument = instrumentSelect.value;
+            const pipValue = AionMarketData.getPipValueForInstrument(marketType, selectedInstrument);
+            const pipValueEl = document.getElementById('trade-pip-value');
+            if (pipValue && pipValueEl) {
+                pipValueEl.value = pipValue;
+            }
+        });
+        grid.appendChild(createFormGroup('Instrument', instrumentSelect));
+
         grid.appendChild(createFormGroup('Direction', createSelect('trade-direction', AionValidators.DIRECTIONS.map(d => ({ value: d, label: d })), currentTrade.direction)));
         grid.appendChild(createFormGroup('Session', createSelect('trade-session', AionValidators.SESSIONS.map(s => ({ value: s, label: s.replace(/_/g, ' ') })), currentTrade.session)));
         grid.appendChild(createFormGroup('Entry Type', createSelect('trade-entry-type', AionValidators.ENTRY_TYPES.map(e => ({ value: e, label: e })), currentTrade.entry_type)));
+
+        // Auto-populate date/time on create
+        if (!currentTrade.entry_date && !currentTrade.date_utc) {
+            currentTrade.date_utc = new Date().toISOString();
+            currentTrade.entry_date = new Date().toISOString().split('T')[0];
+        }
 
         card.appendChild(grid);
 
@@ -840,10 +860,66 @@ const AionTradeDetail = (function () {
 
         AionApp.showConfirm('Confirm State Change', `Change state from ${currentTrade.trade_state} to ${newState}?`, async () => {
             currentTrade.trade_state = newState;
-            if (newState === 'OPEN' && !currentTrade.entry_time_utc) currentTrade.entry_time_utc = new Date().toISOString();
-            if (newState === 'CLOSED') currentTrade.exit_time_utc = new Date().toISOString();
+
+            // Auto-capture entry time (local) when OPEN
+            if (newState === 'OPEN' && !currentTrade.entry_time_utc) {
+                currentTrade.entry_time_utc = new Date().toISOString();
+                currentTrade.entry_date = new Date().toISOString().split('T')[0];
+                currentTrade.day_of_week = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+            }
+
+            // Auto-capture exit time (local) and calculate duration when CLOSED
+            if (newState === 'CLOSED') {
+                currentTrade.exit_time_utc = new Date().toISOString();
+
+                // Calculate holding duration
+                if (currentTrade.entry_time_utc) {
+                    const start = new Date(currentTrade.entry_time_utc);
+                    const end = new Date(currentTrade.exit_time_utc);
+                    const durationHrs = (end - start) / (1000 * 60 * 60);
+                    currentTrade.holding_duration_hours = Math.round(durationHrs * 100) / 100;
+
+                    // Set trade duration category
+                    currentTrade.trade_duration_category = AionMarketData.getTradeDurationCategory(durationHrs);
+                }
+
+                // Auto-update account balance
+                if (currentTrade.net_pl && currentTrade.account_id) {
+                    await updateAccountBalance(currentTrade.account_id, currentTrade.net_pl);
+                }
+            }
+
             await saveTrade();
         });
+    }
+
+    async function updateAccountBalance(accountId, pnl) {
+        try {
+            const accountsRes = await AionAPI.loadAccounts();
+            if (!accountsRes.exists) return;
+
+            const accountsList = accountsRes.content.accounts || [];
+            const accountIdx = accountsList.findIndex(a => a.account_id === accountId);
+
+            if (accountIdx === -1) return;
+
+            const account = accountsList[accountIdx];
+            const currentBalance = account.current_balance || account.initial_balance || 0;
+            const newBalance = Math.round((currentBalance + pnl) * 100) / 100;
+
+            accountsList[accountIdx].current_balance = newBalance;
+
+            const accountsData = accountsRes.content;
+            accountsData.accounts = accountsList;
+            accountsData._meta = AionState.updateMeta(accountsData._meta);
+
+            await AionAPI.saveAccounts(accountsData, accountsRes.sha);
+            AionState.invalidateCache('accounts');
+
+            AionApp.showToast(`Account balance updated: ${AionApp.formatCurrency(newBalance)}`, 'success');
+        } catch (e) {
+            AionApp.showToast('Failed to update account balance', 'error');
+        }
     }
 
     return { render, saveTrade, transitionState };
