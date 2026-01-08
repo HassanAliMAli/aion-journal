@@ -350,20 +350,89 @@ const AionTradeDetail = (function () {
     function renderExecution() {
         const card = createElement('div', 'aion-card');
         card.appendChild(createElement('h3', 'section-title mb-4', 'Execution Quality'));
-        const grid = createElement('div', 'grid grid-cols-2 md:grid-cols-3 gap-4');
 
-        const mkNum = (id, val) => { const i = createElement('input', 'aion-input'); i.id = id; i.type = 'number'; i.step = '0.1'; if (val) i.value = val; return i; };
+        // Market config for conditional fields
+        const marketType = currentTrade.market_type || 'FOREX';
+        const marketConfig = AionValidators.MARKET_FIELD_CONFIG[marketType] || AionValidators.MARKET_FIELD_CONFIG.FOREX;
 
-        grid.appendChild(createFormGroup('Slippage (pips)', mkNum('trade-slippage', currentTrade.slippage)));
-        grid.appendChild(createFormGroup('Spread', mkNum('trade-spread', currentTrade.spread)));
+        const grid = createElement('div', 'grid grid-cols-2 md:grid-cols-4 gap-4');
 
-        const newsSel = createElement('select', 'aion-input aion-select');
-        newsSel.id = 'trade-news';
-        ['', 'Yes', 'No'].forEach(v => { const o = createElement('option', '', v || 'Select...'); o.value = v; if (currentTrade.news_event === v) o.selected = true; newsSel.appendChild(o); });
-        grid.appendChild(createFormGroup('News Nearby', newsSel));
+        const mkNum = (id, val, step, readonly) => {
+            const i = createElement('input', readonly ? 'aion-input bg-aion-bg/50' : 'aion-input');
+            i.id = id;
+            i.type = 'number';
+            i.step = step || '0.01';
+            if (val !== undefined && val !== null) i.value = val;
+            if (readonly) i.readOnly = true;
+            return i;
+        };
+
+        // Slippage and Spread (conditional on market)
+        if (marketConfig.showSlippage) {
+            grid.appendChild(createFormGroup('Slippage (pips)', mkNum('trade-slippage', currentTrade.slippage, '0.1')));
+        }
+        if (marketConfig.showSpread) {
+            grid.appendChild(createFormGroup('Spread (pips)', mkNum('trade-spread', currentTrade.spread, '0.1')));
+        }
+
+        // Commission and Swap - always show
+        grid.appendChild(createFormGroup('Commission ($)', mkNum('trade-commission', currentTrade.commission)));
+        grid.appendChild(createFormGroup('Swap/Overnight ($)', mkNum('trade-swap', currentTrade.swap)));
 
         card.appendChild(grid);
 
+        // MFE/MAE Section
+        const mfeSection = createElement('div', 'mt-4');
+        mfeSection.appendChild(createElement('h4', 'text-sm font-bold mb-3 text-aion-muted uppercase', 'Trade Excursion (MFE/MAE)'));
+        const mfeGrid = createElement('div', 'grid grid-cols-2 md:grid-cols-4 gap-4');
+
+        mfeGrid.appendChild(createFormGroup('MFE Price', mkNum('trade-mfe', currentTrade.mfe, 'any')));
+        mfeGrid.appendChild(createFormGroup('MAE Price', mkNum('trade-mae', currentTrade.mae, 'any')));
+
+        card.appendChild(mfeSection);
+        mfeSection.appendChild(mfeGrid);
+
+        // Calculated Costs Section
+        const costSection = createElement('div', 'mt-4 p-3 bg-red-500/10 rounded-lg border border-red-500/30');
+        costSection.appendChild(createElement('h4', 'text-sm font-bold mb-3 text-red-400 uppercase', 'Trading Costs (Auto-calculated)'));
+        const costGrid = createElement('div', 'grid grid-cols-2 md:grid-cols-4 gap-4');
+
+        // Calculate costs
+        const positionSize = parseFloat(currentTrade[marketConfig.positionSizeField]) || 0;
+        const pipValue = currentTrade[marketConfig.pipPointField] || 10;
+        const slippageCost = (currentTrade.slippage || 0) * positionSize * pipValue;
+        const spreadCost = (currentTrade.spread || 0) * positionSize * pipValue;
+        const totalCosts = slippageCost + spreadCost + (currentTrade.commission || 0) + (currentTrade.swap || 0);
+
+        costGrid.appendChild(createFormGroup('Slippage Cost', mkNum('trade-slippage-cost', Math.round(slippageCost * 100) / 100, '0.01', true)));
+        costGrid.appendChild(createFormGroup('Spread Cost', mkNum('trade-spread-cost', Math.round(spreadCost * 100) / 100, '0.01', true)));
+        costGrid.appendChild(createFormGroup('Total Costs', mkNum('trade-total-costs', Math.round(totalCosts * 100) / 100, '0.01', true)));
+
+        // Gross P&L and Net After Costs
+        const grossPL = currentTrade.gross_pl || currentTrade.net_pl;
+        const netAfterCosts = grossPL ? grossPL - totalCosts : null;
+        costGrid.appendChild(createFormGroup('Net After Costs', mkNum('trade-net-after-costs', netAfterCosts ? Math.round(netAfterCosts * 100) / 100 : '', '0.01', true)));
+
+        costSection.appendChild(costGrid);
+        card.appendChild(costSection);
+
+        // News Event
+        const newsDiv = createElement('div', 'mt-4');
+        const newsGrid = createElement('div', 'grid grid-cols-2 gap-4');
+        const newsSel = createElement('select', 'aion-input aion-select');
+        newsSel.id = 'trade-news';
+        ['', 'Yes', 'No'].forEach(v => { const o = createElement('option', '', v || 'Select...'); o.value = v; if (currentTrade.news_event === v) o.selected = true; newsSel.appendChild(o); });
+        newsGrid.appendChild(createFormGroup('News Nearby', newsSel));
+
+        // Holding Duration (auto-calculated)
+        const holdingDuration = currentTrade.holding_duration_hours || calculateHoldingDuration(currentTrade);
+        const durationInput = mkNum('trade-holding-duration', holdingDuration ? Math.round(holdingDuration * 100) / 100 : '', '0.01', true);
+        newsGrid.appendChild(createFormGroup('Holding Duration (hrs)', durationInput));
+
+        newsDiv.appendChild(newsGrid);
+        card.appendChild(newsDiv);
+
+        // Execution Notes
         const noteDiv = createElement('div', 'mt-4');
         const notes = createElement('textarea', 'aion-input aion-textarea');
         notes.id = 'trade-exec-notes';
@@ -373,6 +442,17 @@ const AionTradeDetail = (function () {
         card.appendChild(noteDiv);
 
         return card;
+    }
+
+    function calculateHoldingDuration(trade) {
+        if (!trade.entry_time_utc && !trade.entry_date) return null;
+        if (!trade.exit_time_utc) return null;
+
+        const start = new Date(trade.entry_time_utc || trade.entry_date);
+        const end = new Date(trade.exit_time_utc);
+        const durationHrs = (end - start) / (1000 * 60 * 60);
+
+        return durationHrs >= 0 ? durationHrs : null;
     }
 
     function renderPsychology() {
@@ -486,11 +566,90 @@ const AionTradeDetail = (function () {
     }
 
     function setupFormListeners() {
+        // Price fields for RR calculation
         const priceFields = ['trade-planned-entry', 'trade-actual-entry', 'trade-sl', 'trade-tp', 'trade-exit-price', 'trade-direction', 'trade-position-size', 'trade-pip-value'];
         priceFields.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', recalculateRR);
         });
+
+        // Risk fields for bidirectional calculation
+        const riskPctEl = document.getElementById('trade-risk-pct');
+        const usdRiskEl = document.getElementById('trade-usd-risk');
+
+        if (riskPctEl) {
+            riskPctEl.addEventListener('change', () => recalculateRisk('pct'));
+        }
+        if (usdRiskEl) {
+            usdRiskEl.addEventListener('change', () => recalculateRisk('usd'));
+        }
+
+        // Cost fields recalculation
+        const costFields = ['trade-slippage', 'trade-spread', 'trade-commission', 'trade-swap'];
+        costFields.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', recalculateCosts);
+        });
+    }
+
+    function recalculateRisk(source) {
+        const selectedAccountId = document.getElementById('trade-account')?.value;
+        const account = accounts.find(a => a.account_id === selectedAccountId);
+        if (!account) return;
+
+        const accountBalance = account.current_balance || account.initial_balance || 0;
+        if (accountBalance <= 0) return;
+
+        const riskPctEl = document.getElementById('trade-risk-pct');
+        const usdRiskEl = document.getElementById('trade-usd-risk');
+
+        if (source === 'pct') {
+            // Calculate USD Risk from Risk %
+            const riskPct = parseFloat(riskPctEl?.value);
+            if (riskPct && riskPct > 0) {
+                const usdRisk = accountBalance * (riskPct / 100);
+                usdRiskEl.value = Math.round(usdRisk * 100) / 100;
+            }
+        } else if (source === 'usd') {
+            // Calculate Risk % from USD Risk
+            const usdRisk = parseFloat(usdRiskEl?.value);
+            if (usdRisk && usdRisk > 0) {
+                const riskPct = (usdRisk / accountBalance) * 100;
+                riskPctEl.value = Math.round(riskPct * 100) / 100;
+            }
+        }
+    }
+
+    function recalculateCosts() {
+        const marketType = document.getElementById('trade-market')?.value || 'FOREX';
+        const marketConfig = AionValidators.MARKET_FIELD_CONFIG[marketType] || AionValidators.MARKET_FIELD_CONFIG.FOREX;
+
+        const positionSize = parseFloat(document.getElementById('trade-position-size')?.value) || 0;
+        const pipValue = parseFloat(document.getElementById('trade-pip-value')?.value) || 10;
+        const slippage = parseFloat(document.getElementById('trade-slippage')?.value) || 0;
+        const spread = parseFloat(document.getElementById('trade-spread')?.value) || 0;
+        const commission = parseFloat(document.getElementById('trade-commission')?.value) || 0;
+        const swap = parseFloat(document.getElementById('trade-swap')?.value) || 0;
+
+        const slippageCost = slippage * positionSize * pipValue;
+        const spreadCost = spread * positionSize * pipValue;
+        const totalCosts = slippageCost + spreadCost + commission + swap;
+
+        const slippageCostEl = document.getElementById('trade-slippage-cost');
+        const spreadCostEl = document.getElementById('trade-spread-cost');
+        const totalCostsEl = document.getElementById('trade-total-costs');
+        const netAfterCostsEl = document.getElementById('trade-net-after-costs');
+        const netPLEl = document.getElementById('trade-net-pl');
+
+        if (slippageCostEl) slippageCostEl.value = Math.round(slippageCost * 100) / 100;
+        if (spreadCostEl) spreadCostEl.value = Math.round(spreadCost * 100) / 100;
+        if (totalCostsEl) totalCostsEl.value = Math.round(totalCosts * 100) / 100;
+
+        // Update net after costs if we have P&L
+        const netPL = parseFloat(netPLEl?.value) || 0;
+        if (netAfterCostsEl && netPL) {
+            netAfterCostsEl.value = Math.round((netPL - totalCosts) * 100) / 100;
+        }
     }
 
     function recalculateRR() {
@@ -596,6 +755,21 @@ const AionTradeDetail = (function () {
         // Get market config for field mapping
         const marketConfig = AionValidators.MARKET_FIELD_CONFIG[marketType] || AionValidators.MARKET_FIELD_CONFIG.FOREX;
 
+        // Calculate holding duration
+        const holdingDuration = parseFloat(document.getElementById('trade-holding-duration')?.value) || null;
+
+        // Calculate total costs
+        const commission = parseFloat(document.getElementById('trade-commission')?.value) || null;
+        const swap = parseFloat(document.getElementById('trade-swap')?.value) || null;
+        const slippage = parseFloat(document.getElementById('trade-slippage')?.value) || null;
+        const spread = parseFloat(document.getElementById('trade-spread')?.value) || null;
+        const slippageCost = slippage ? slippage * (positionSize || 0) * (pipValue || 10) : null;
+        const spreadCost = spread ? spread * (positionSize || 0) * (pipValue || 10) : null;
+        const totalCosts = (slippageCost || 0) + (spreadCost || 0) + (commission || 0) + (swap || 0);
+
+        // Gross P&L is net_pl (before deducting costs we track separately)
+        const grossPL = netPL;
+
         // Build base data
         const data = {
             trade_name: document.getElementById('trade-name')?.value || '',
@@ -615,20 +789,32 @@ const AionTradeDetail = (function () {
             exit_type: document.getElementById('trade-exit-type')?.value || null,
             exit_price: exit || null,
             net_pl: netPL,
+            gross_pl: grossPL,
             planned_rr: plannedRR,
             actual_rr: actualRR,
+            // New execution fields
+            commission: commission,
+            swap: swap,
+            mfe: parseFloat(document.getElementById('trade-mfe')?.value) || null,
+            mae: parseFloat(document.getElementById('trade-mae')?.value) || null,
+            holding_duration_hours: holdingDuration,
+            slippage_cost: slippageCost ? Math.round(slippageCost * 100) / 100 : null,
+            spread_cost: spreadCost ? Math.round(spreadCost * 100) / 100 : null,
+            total_costs: totalCosts > 0 ? Math.round(totalCosts * 100) / 100 : null,
+            // Psychology
             pre_trade_emotion: document.getElementById('trade-pre-emotion')?.value || null,
             pre_trade_intensity: parseInt(document.getElementById('trade-pre-intensity')?.value) || null,
             during_trade_emotion: document.getElementById('trade-during-emotion')?.value || null,
             during_trade_intensity: parseInt(document.getElementById('trade-during-intensity')?.value) || null,
             post_trade_emotion: document.getElementById('trade-post-emotion')?.value || null,
             confidence_score: parseInt(document.getElementById('trade-confidence')?.value) || null,
+            // Context
             htf_bias: document.getElementById('trade-htf-bias')?.value || '',
             market_structure: document.getElementById('trade-market-structure')?.value || '',
             liquidity_context: document.getElementById('trade-liquidity')?.value || '',
             chart_link: document.getElementById('trade-chart-link')?.value || '',
-            slippage: parseFloat(document.getElementById('trade-slippage')?.value) || null,
-            spread: parseFloat(document.getElementById('trade-spread')?.value) || null,
+            slippage: slippage,
+            spread: spread,
             news_event: document.getElementById('trade-news')?.value || null,
             execution_notes: document.getElementById('trade-exec-notes')?.value || '',
             raw_narrative_text: document.getElementById('trade-narrative')?.value || '',
