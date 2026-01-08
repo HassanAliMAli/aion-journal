@@ -206,41 +206,126 @@ const AionTradeDetail = (function () {
         };
 
         // Factory for inputs
-        const createInput = (id, type, val, placeholder, step, readonly) => {
-            const i = createElement('input', 'aion-input');
+        const createInput = (id, type, val, placeholder, step, readonly, className) => {
+            const i = createElement('input', className || 'aion-input');
             i.id = id;
             i.type = type;
             if (val !== undefined && val !== null) i.value = val;
             if (placeholder) i.placeholder = placeholder;
             if (step) i.step = step;
-            if (readonly) i.readOnly = true;
+            if (readonly) { i.readOnly = true; i.classList.add('bg-aion-bg/50'); }
             return i;
         };
 
+        // Get market config
+        const marketType = currentTrade.market_type || 'FOREX';
+        const marketConfig = AionValidators.MARKET_FIELD_CONFIG[marketType] || AionValidators.MARKET_FIELD_CONFIG.FOREX;
+
+        // Basic fields
         grid.appendChild(createFormGroup('Account', createSelect('trade-account', accounts.map(a => ({ value: a.account_id, label: `${a.trader_name} (${a.platform})` })), currentTrade.account_id)));
         grid.appendChild(createFormGroup('Setup', createSelect('trade-setup', setups.filter(s => s.setup_status === 'ACTIVE').map(s => ({ value: s.setup_id, label: s.setup_name })), currentTrade.setup_id)));
-        grid.appendChild(createFormGroup('Market Type', createSelect('trade-market', AionValidators.MARKET_TYPES.map(m => ({ value: m, label: m })), currentTrade.market_type)));
+
+        // Market Type with change listener
+        const marketSelect = createSelect('trade-market', AionValidators.MARKET_TYPES.map(m => ({ value: m, label: m })), currentTrade.market_type);
+        marketSelect.addEventListener('change', () => {
+            // Re-render the entire page to update dynamic fields
+            currentTrade.market_type = marketSelect.value;
+            render(currentTrade.trade_id);
+        });
+        grid.appendChild(createFormGroup('Market Type', marketSelect));
+
         grid.appendChild(createFormGroup('Instrument', createInput('trade-instrument', 'text', currentTrade.instrument, 'e.g., EURUSD')));
         grid.appendChild(createFormGroup('Direction', createSelect('trade-direction', AionValidators.DIRECTIONS.map(d => ({ value: d, label: d })), currentTrade.direction)));
         grid.appendChild(createFormGroup('Session', createSelect('trade-session', AionValidators.SESSIONS.map(s => ({ value: s, label: s.replace(/_/g, ' ') })), currentTrade.session)));
         grid.appendChild(createFormGroup('Entry Type', createSelect('trade-entry-type', AionValidators.ENTRY_TYPES.map(e => ({ value: e, label: e })), currentTrade.entry_type)));
 
-        grid.appendChild(createFormGroup('Planned Entry', createInput('trade-planned-entry', 'number', currentTrade.planned_entry_price, '', 'any')));
-        grid.appendChild(createFormGroup('Actual Entry', createInput('trade-actual-entry', 'number', currentTrade.actual_entry_price, '', 'any')));
-        grid.appendChild(createFormGroup('Stop Loss', createInput('trade-sl', 'number', currentTrade.stop_loss, '', 'any')));
-        grid.appendChild(createFormGroup('Take Profit', createInput('trade-tp', 'number', currentTrade.take_profit, '', 'any')));
-        grid.appendChild(createFormGroup('Risk %', createInput('trade-risk-pct', 'number', currentTrade.risk_pct, '', '0.01')));
-        grid.appendChild(createFormGroup('USD Risk', createInput('trade-usd-risk', 'number', currentTrade.usd_risk, '', '0.01')));
-        grid.appendChild(createFormGroup('Planned RR', createInput('trade-planned-rr', 'text', currentTrade.planned_rr, '', '', true)));
-
-        grid.appendChild(createFormGroup('Exit Type', createSelect('trade-exit-type', AionValidators.EXIT_TYPES.map(e => ({ value: e, label: e })), currentTrade.exit_type)));
-        grid.appendChild(createFormGroup('Exit Price', createInput('trade-exit-price', 'number', currentTrade.exit_price, '', 'any')));
-        grid.appendChild(createFormGroup('Net P&L', createInput('trade-net-pl', 'number', currentTrade.net_pl, '', '0.01')));
-        grid.appendChild(createFormGroup('Actual RR', createInput('trade-actual-rr', 'text', currentTrade.actual_rr, '', '', true)));
-
         card.appendChild(grid);
+
+        // Position Sizing Section
+        const posSection = createElement('div', 'mt-6 p-4 bg-aion-bg/30 rounded-lg');
+        posSection.appendChild(createElement('h4', 'text-sm font-bold mb-3 text-aion-muted uppercase', 'Position Sizing'));
+        const posGrid = createElement('div', 'grid grid-cols-2 md:grid-cols-4 gap-4');
+
+        // Position size field (label changes per market)
+        const positionSizeVal = currentTrade[marketConfig.positionSizeField] || '';
+        posGrid.appendChild(createFormGroup(marketConfig.positionSizeLabel, createInput('trade-position-size', 'number', positionSizeVal, '0.01', '0.01')));
+
+        // Pip/Point Value (only for Forex, Futures, Indices)
+        if (marketConfig.pipPointField) {
+            const pipVal = currentTrade[marketConfig.pipPointField] || marketConfig.defaultPipValue || '';
+            posGrid.appendChild(createFormGroup(marketConfig.pipPointLabel, createInput('trade-pip-value', 'number', pipVal, '10', '0.01')));
+        }
+
+        // Risk fields
+        posGrid.appendChild(createFormGroup('Risk %', createInput('trade-risk-pct', 'number', currentTrade.risk_pct, '', '0.01')));
+        posGrid.appendChild(createFormGroup('USD Risk', createInput('trade-usd-risk', 'number', currentTrade.usd_risk, '', '0.01')));
+
+        posSection.appendChild(posGrid);
+
+        // Calculate button
+        const calcBtnDiv = createElement('div', 'mt-3');
+        const calcBtn = createElement('button', 'aion-btn aion-btn-secondary aion-btn-sm', 'Calculate Position Size from Risk');
+        calcBtn.onclick = calculatePositionFromRisk;
+        calcBtnDiv.appendChild(calcBtn);
+        posSection.appendChild(calcBtnDiv);
+
+        card.appendChild(posSection);
+
+        // Entry/Exit Section
+        const entrySection = createElement('div', 'mt-6');
+        entrySection.appendChild(createElement('h4', 'text-sm font-bold mb-3 text-aion-muted uppercase', 'Entry & Exit'));
+        const entryGrid = createElement('div', 'grid grid-cols-2 md:grid-cols-4 gap-4');
+
+        entryGrid.appendChild(createFormGroup('Planned Entry', createInput('trade-planned-entry', 'number', currentTrade.planned_entry_price, '', 'any')));
+        entryGrid.appendChild(createFormGroup('Actual Entry', createInput('trade-actual-entry', 'number', currentTrade.actual_entry_price, '', 'any')));
+        entryGrid.appendChild(createFormGroup('Stop Loss', createInput('trade-sl', 'number', currentTrade.stop_loss, '', 'any')));
+        entryGrid.appendChild(createFormGroup('Take Profit', createInput('trade-tp', 'number', currentTrade.take_profit, '', 'any')));
+        entryGrid.appendChild(createFormGroup('Exit Type', createSelect('trade-exit-type', AionValidators.EXIT_TYPES.map(e => ({ value: e, label: e })), currentTrade.exit_type)));
+        entryGrid.appendChild(createFormGroup('Exit Price', createInput('trade-exit-price', 'number', currentTrade.exit_price, '', 'any')));
+
+        entrySection.appendChild(entryGrid);
+        card.appendChild(entrySection);
+
+        // Calculated Fields Section
+        const calcSection = createElement('div', 'mt-6 p-4 bg-aion-accent/10 rounded-lg border border-aion-accent/30');
+        calcSection.appendChild(createElement('h4', 'text-sm font-bold mb-3 text-aion-accent uppercase', 'Calculated Values (Auto-updated)'));
+        const calcGrid = createElement('div', 'grid grid-cols-2 md:grid-cols-4 gap-4');
+
+        calcGrid.appendChild(createFormGroup('Planned RR', createInput('trade-planned-rr', 'text', currentTrade.planned_rr ? currentTrade.planned_rr + 'R' : '', '', '', true)));
+        calcGrid.appendChild(createFormGroup('Actual RR', createInput('trade-actual-rr', 'text', currentTrade.actual_rr ? currentTrade.actual_rr + 'R' : '', '', '', true)));
+        calcGrid.appendChild(createFormGroup('Net P&L', createInput('trade-net-pl', 'number', currentTrade.net_pl, '', '0.01', true)));
+
+        calcSection.appendChild(calcGrid);
+        card.appendChild(calcSection);
+
         return card;
     }
+
+    function calculatePositionFromRisk() {
+        const selectedAccountId = document.getElementById('trade-account')?.value;
+        const account = accounts.find(a => a.account_id === selectedAccountId);
+        if (!account) { AionApp.showToast('Select an account first', 'error'); return; }
+
+        const riskPct = parseFloat(document.getElementById('trade-risk-pct')?.value);
+        const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
+        const sl = parseFloat(document.getElementById('trade-sl')?.value);
+        const pipValue = parseFloat(document.getElementById('trade-pip-value')?.value) || 10;
+        const marketType = document.getElementById('trade-market')?.value || 'FOREX';
+
+        const accountBalance = account.current_balance || account.initial_balance || 0;
+
+        const positionSize = AionValidators.calculatePositionSizeFromRisk(accountBalance, riskPct, entry, sl, pipValue, marketType);
+
+        if (positionSize !== null) {
+            document.getElementById('trade-position-size').value = positionSize;
+            const usdRisk = accountBalance * (riskPct / 100);
+            document.getElementById('trade-usd-risk').value = Math.round(usdRisk * 100) / 100;
+            AionApp.showToast(`Position size calculated: ${positionSize}`, 'success');
+        } else {
+            AionApp.showToast('Cannot calculate - check Entry, SL, and Risk %', 'error');
+        }
+    }
+
 
     function renderContext() {
         const card = createElement('div', 'aion-card');
@@ -401,7 +486,7 @@ const AionTradeDetail = (function () {
     }
 
     function setupFormListeners() {
-        const priceFields = ['trade-planned-entry', 'trade-actual-entry', 'trade-sl', 'trade-tp', 'trade-exit-price', 'trade-direction'];
+        const priceFields = ['trade-planned-entry', 'trade-actual-entry', 'trade-sl', 'trade-tp', 'trade-exit-price', 'trade-direction', 'trade-position-size', 'trade-pip-value'];
         priceFields.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', recalculateRR);
@@ -414,15 +499,28 @@ const AionTradeDetail = (function () {
         const tp = parseFloat(document.getElementById('trade-tp')?.value);
         const exitPrice = parseFloat(document.getElementById('trade-exit-price')?.value);
         const direction = document.getElementById('trade-direction')?.value;
+        const marketType = document.getElementById('trade-market')?.value || 'FOREX';
+        const positionSize = parseFloat(document.getElementById('trade-position-size')?.value);
+        const pipValue = parseFloat(document.getElementById('trade-pip-value')?.value) || 10;
 
+        // Calculate Planned RR
         if (entry && sl && tp) {
             const plannedRR = AionValidators.calculateRR(entry, sl, tp, direction);
             document.getElementById('trade-planned-rr').value = plannedRR ? plannedRR + 'R' : '';
         }
 
+        // Calculate Actual RR
         if (entry && sl && exitPrice) {
             const actualRR = AionValidators.calculateActualRR(entry, sl, exitPrice, direction);
             document.getElementById('trade-actual-rr').value = actualRR ? actualRR + 'R' : '';
+
+            // Calculate Net P&L if we have position size
+            if (positionSize) {
+                const netPL = AionValidators.calculatePnL(entry, exitPrice, positionSize, pipValue, direction, marketType);
+                if (netPL !== null) {
+                    document.getElementById('trade-net-pl').value = netPL;
+                }
+            }
         }
     }
 
@@ -481,16 +579,29 @@ const AionTradeDetail = (function () {
         const tp = parseFloat(document.getElementById('trade-tp')?.value);
         const exit = parseFloat(document.getElementById('trade-exit-price')?.value);
         const direction = document.getElementById('trade-direction')?.value;
+        const marketType = document.getElementById('trade-market')?.value || 'FOREX';
+        const positionSize = parseFloat(document.getElementById('trade-position-size')?.value) || null;
+        const pipValue = parseFloat(document.getElementById('trade-pip-value')?.value) || null;
 
         // Calculate derived values directly to avoid UI staleness
         const plannedRR = AionValidators.calculateRR(entry, sl, tp, direction);
         const actualRR = AionValidators.calculateActualRR(entry, sl, exit, direction);
 
-        return {
+        // Calculate P&L if we have all required data
+        let netPL = parseFloat(document.getElementById('trade-net-pl')?.value) || null;
+        if (exit && positionSize && !netPL) {
+            netPL = AionValidators.calculatePnL(entry, exit, positionSize, pipValue, direction, marketType);
+        }
+
+        // Get market config for field mapping
+        const marketConfig = AionValidators.MARKET_FIELD_CONFIG[marketType] || AionValidators.MARKET_FIELD_CONFIG.FOREX;
+
+        // Build base data
+        const data = {
             trade_name: document.getElementById('trade-name')?.value || '',
             account_id: document.getElementById('trade-account')?.value || null,
             setup_id: document.getElementById('trade-setup')?.value || null,
-            market_type: document.getElementById('trade-market')?.value || null,
+            market_type: marketType,
             instrument: document.getElementById('trade-instrument')?.value || null,
             direction: direction || null,
             session: document.getElementById('trade-session')?.value || null,
@@ -503,7 +614,7 @@ const AionTradeDetail = (function () {
             usd_risk: parseFloat(document.getElementById('trade-usd-risk')?.value) || null,
             exit_type: document.getElementById('trade-exit-type')?.value || null,
             exit_price: exit || null,
-            net_pl: parseFloat(document.getElementById('trade-net-pl')?.value) || null,
+            net_pl: netPL,
             planned_rr: plannedRR,
             actual_rr: actualRR,
             pre_trade_emotion: document.getElementById('trade-pre-emotion')?.value || null,
@@ -523,6 +634,18 @@ const AionTradeDetail = (function () {
             raw_narrative_text: document.getElementById('trade-narrative')?.value || '',
             management_notes: document.getElementById('trade-management')?.value || ''
         };
+
+        // Add position size field based on market type
+        if (marketConfig.positionSizeField) {
+            data[marketConfig.positionSizeField] = positionSize;
+        }
+
+        // Add pip/point value if applicable
+        if (marketConfig.pipPointField && pipValue) {
+            data[marketConfig.pipPointField] = pipValue;
+        }
+
+        return data;
     }
 
     async function transitionState(newState) {

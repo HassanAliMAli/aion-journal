@@ -16,6 +16,55 @@ const AionValidators = (function () {
     const SETUP_STATUSES = ['ACTIVE', 'PAUSED', 'RETIRED'];
     const ENFORCEMENT_LEVELS = ['STRICT', 'WARNING', 'LOG_ONLY'];
 
+    // Market-specific field configuration
+    const MARKET_FIELD_CONFIG = {
+        FOREX: {
+            positionSizeLabel: 'Lots',
+            positionSizeField: 'lots',
+            pipPointLabel: 'Pip Value ($)',
+            pipPointField: 'pip_value',
+            showSpread: true,
+            showSlippage: true,
+            defaultPipValue: 10 // Standard lot, USD pairs
+        },
+        FUTURES: {
+            positionSizeLabel: 'Contracts',
+            positionSizeField: 'contracts',
+            pipPointLabel: 'Point Value ($)',
+            pipPointField: 'point_value',
+            showSpread: false,
+            showSlippage: true,
+            defaultPipValue: null
+        },
+        STOCKS: {
+            positionSizeLabel: 'Shares',
+            positionSizeField: 'shares',
+            pipPointLabel: null,
+            pipPointField: null,
+            showSpread: false,
+            showSlippage: false,
+            defaultPipValue: null
+        },
+        CRYPTO: {
+            positionSizeLabel: 'Quantity',
+            positionSizeField: 'quantity',
+            pipPointLabel: null,
+            pipPointField: null,
+            showSpread: true,
+            showSlippage: true,
+            defaultPipValue: null
+        },
+        INDICES: {
+            positionSizeLabel: 'Contracts/Lots',
+            positionSizeField: 'contracts',
+            pipPointLabel: 'Point Value ($)',
+            pipPointField: 'point_value',
+            showSpread: true,
+            showSlippage: true,
+            defaultPipValue: null
+        }
+    };
+
     function validateTrade(trade, setups, rules, account) {
         const errors = [];
         const warnings = [];
@@ -152,11 +201,73 @@ const AionValidators = (function () {
         return prefix ? `${prefix}${maxId + 1}` : maxId + 1;
     }
 
+    // Calculate P&L based on market type
+    function calculatePnL(entry, exit, positionSize, pipPointValue, direction, marketType) {
+        if (!entry || !exit || !positionSize) return null;
+
+        const config = MARKET_FIELD_CONFIG[marketType];
+        if (!config) return null;
+
+        const priceDiff = direction === 'LONG' ? exit - entry : entry - exit;
+
+        // Stocks/Crypto: Simple P&L = priceDiff * quantity
+        if (marketType === 'STOCKS' || marketType === 'CRYPTO') {
+            return Math.round(priceDiff * positionSize * 100) / 100;
+        }
+
+        // Forex/Futures/Indices: P&L = priceDiff * positionSize * pipPointValue
+        if (pipPointValue) {
+            // For forex, priceDiff is in pips (need to convert based on instrument)
+            // Simplified: assume pipPointValue already accounts for pip size
+            return Math.round(priceDiff * positionSize * pipPointValue * 100) / 100;
+        }
+
+        return null;
+    }
+
+    // Calculate position size from risk parameters
+    function calculatePositionSizeFromRisk(accountBalance, riskPct, entry, stopLoss, pipPointValue, marketType) {
+        if (!accountBalance || !riskPct || !entry || !stopLoss) return null;
+
+        const riskAmount = accountBalance * (riskPct / 100);
+        const slDistance = Math.abs(entry - stopLoss);
+
+        if (slDistance === 0) return null;
+
+        // Stocks/Crypto: shares = riskAmount / slDistance
+        if (marketType === 'STOCKS' || marketType === 'CRYPTO') {
+            return Math.round((riskAmount / slDistance) * 100) / 100;
+        }
+
+        // Forex/Futures: lots = riskAmount / (slDistance * pipPointValue)
+        if (pipPointValue && pipPointValue > 0) {
+            return Math.round((riskAmount / (slDistance * pipPointValue)) * 100) / 100;
+        }
+
+        return null;
+    }
+
+    // Get position size value from trade based on market type
+    function getPositionSize(trade) {
+        const config = MARKET_FIELD_CONFIG[trade.market_type];
+        if (!config) return null;
+        return trade[config.positionSizeField] || null;
+    }
+
+    // Get pip/point value from trade based on market type
+    function getPipPointValue(trade) {
+        const config = MARKET_FIELD_CONFIG[trade.market_type];
+        if (!config || !config.pipPointField) return null;
+        return trade[config.pipPointField] || config.defaultPipValue || null;
+    }
+
     return {
         TRADE_STATES, TRADE_STATUSES, DIRECTIONS, ENTRY_TYPES, EXIT_TYPES,
         MARKET_TYPES, SESSIONS, EMOTIONS, SETUP_STATUSES, ENFORCEMENT_LEVELS,
+        MARKET_FIELD_CONFIG,
         validateTrade, hasRequiredFields, validateStateTransition,
         calculateRR, calculateActualRR, determineTradeStatus,
+        calculatePnL, calculatePositionSizeFromRisk, getPositionSize, getPipPointValue,
         validateSchema, generateTradeId, generateId
     };
 })();
