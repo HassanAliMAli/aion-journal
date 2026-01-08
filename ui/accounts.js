@@ -199,11 +199,31 @@ const AionAccounts = (function () {
             if (options) {
                 const select = createElement('select', 'aion-input aion-select');
                 select.id = id;
+
+                // Helper to add option
+                const addOption = (parent, label, value) => {
+                    const o = createElement('option', '', label);
+                    o.value = value || label; // Use label as value if value not provided
+                    if (val === o.value) o.selected = true;
+                    parent.appendChild(o);
+                };
+
                 options.forEach(opt => {
-                    const o = createElement('option', '', opt.label);
-                    o.value = opt.value;
-                    if (val === opt.value) o.selected = true;
-                    select.appendChild(o);
+                    if (opt.options) {
+                        // It's a group
+                        const group = createElement('optgroup');
+                        group.label = opt.label;
+                        opt.options.forEach(subOpt => {
+                            // SubOpt can be string or object {label, value}
+                            const label = typeof subOpt === 'string' ? subOpt : subOpt.label;
+                            const value = typeof subOpt === 'string' ? subOpt : subOpt.value;
+                            addOption(group, label, value);
+                        });
+                        select.appendChild(group);
+                    } else {
+                        // Regular option
+                        addOption(select, opt.label, opt.value);
+                    }
                 });
                 div.appendChild(select);
             } else {
@@ -221,11 +241,123 @@ const AionAccounts = (function () {
         grid.appendChild(createInputGroup('Broker / Prop Firm', 'acc-broker', account?.broker || '', 'e.g. FTMO, IC Markets'));
 
         grid.appendChild(createInputGroup('Platform', 'acc-platform', account?.platform, '', 'text', [
-            { value: 'MetaTrader 4', label: 'MetaTrader 4' },
-            { value: 'MetaTrader 5', label: 'MetaTrader 5' },
-            { value: 'cTrader', label: 'cTrader' },
-            { value: 'TradingView', label: 'TradingView' },
-            { value: 'Other', label: 'Other' }
+            // UNIVERSAL / MULTI-ASSET TERMINALS
+            {
+                label: "UNIVERSAL / MULTI-ASSET TERMINALS",
+                options: [
+                    "MetaTrader 4 (MT4)", "MetaTrader 5 (MT5)", "cTrader", "TradingView", "NinjaTrader",
+                    "ProRealTime", "MultiCharts", "Sierra Chart", "Thinkorswim", "xStation", "eSignal", "IQFeed"
+                ]
+            },
+            // BROKER / RETAIL PROPRIETARY PLATFORMS
+            {
+                label: "BROKER / RETAIL PROPRIETARY PLATFORMS",
+                options: [
+                    "OANDA fxTrade", "OANDA Platform", "FOREX.com Advanced Trader", "FXCM Trading Station",
+                    "IG Trading Platform", "CMC Markets Next Generation", "SaxoTraderGO", "SaxoTraderPRO",
+                    "Pepperstone Platform", "ThinkTrader", "Capital.com Platform", "Plus500 Platform",
+                    "eToro Platform", "City Index Platform", "AvaTrade Platform", "ActivTrader",
+                    "Markets.com Platform", "RoboForex R Trader", "FxPro Platform", "Alpari Platform Suite",
+                    "Swissquote Platform", "Dukascopy JForex"
+                ]
+            },
+            // INSTITUTIONAL FX / ECN / MARKET ACCESS
+            {
+                label: "INSTITUTIONAL FX / ECN / MARKET ACCESS",
+                options: [
+                    "LMAX Exchange", "Currenex", "Fortex", "FastMatch", "360T", "Hotspot FX", "EBS",
+                    "Reuters Matching", "Cboe FX", "Integral FX Inside", "Integral Fixo"
+                ]
+            },
+            // FUTURES / OPTIONS / COMMODITIES PLATFORMS
+            {
+                label: "FUTURES / OPTIONS / COMMODITIES PLATFORMS",
+                options: [
+                    "CQG", "Rithmic", "Trading Technologies (TT)", "CME Globex", "ICE Trading Platform",
+                    "Eurex", "Cboe Options Platform"
+                ]
+            },
+            // EQUITIES / PROFESSIONAL EMS / OMS
+            {
+                label: "EQUITIES / PROFESSIONAL EMS / OMS",
+                options: [
+                    "Bloomberg Terminal", "Bloomberg FXGO", "Bloomberg EMSX", "Bloomberg AIM",
+                    "Refinitiv Eikon", "Refinitiv Workspace", "FlexTrade", "Portware", "Eze OMS",
+                    "Sterling Trader", "Liquidnet"
+                ]
+            },
+            // FIXED INCOME / BONDS
+            {
+                label: "FIXED INCOME / BONDS",
+                options: [
+                    "Tradeweb", "MarketAxess", "MTS"
+                ]
+            },
+            // CRYPTO EXCHANGES (CENTRALIZED)
+            {
+                label: "CRYPTO EXCHANGES (CENTRALIZED)",
+                options: [
+                    "Binance", "Coinbase", "Coinbase Pro", "Kraken", "Bitfinex", "Bybit", "OKX",
+                    "Huobi", "Gate.io", "Bitstamp", "KuCoin", "Gemini"
+                ]
+            },
+            // CRYPTO DERIVATIVES / DEXs
+            {
+                label: "CRYPTO DERIVATIVES / DEXs",
+                options: [
+                    "dYdX", "GMX", "Uniswap", "SushiSwap", "PancakeSwap", "Curve", "Balancer"
+                ]
+            },
+            // CRYPTO TRADING TERMINALS / AGGREGATORS
+            {
+                label: "CRYPTO TRADING TERMINALS / AGGREGATORS",
+                options: [
+                    "Coinigy", "Altrady", "3Commas", "TabTrader", "Zapper", "Zerion", "1inch", "Paraswap"
+                ]
+            },
+            // WHITE-LABEL / BROKER ENGINES
+            {
+                label: "WHITE-LABEL / BROKER ENGINES",
+                options: [
+                    "B2Trader", "B2Core", "B2BX", "Match-Trader", "XOH Trader", "WOW Trader"
+                ]
+            },
+            // DATA / CHARTING / AUTOMATION TOOLS
+            {
+                label: "DATA / CHARTING / AUTOMATION TOOLS",
+                options: [
+                    "TrendSpider", "Sirix"
+                ]
+            },
+            // MULTI-MARKET / BROKER WORKSTATIONS
+            {
+                label: "MULTI-MARKET / BROKER WORKSTATIONS",
+                options: [
+                    "Trader Workstation (TWS)"
+                ]
+            },
+            // APIs / ALGO / EXECUTION FRAMEWORKS
+            {
+                label: "APIs / ALGO / EXECUTION FRAMEWORKS",
+                options: [
+                    "Interactive Brokers API", "Saxo OpenAPI", "OANDA API", "FXCM API", "FIX Protocol",
+                    "QuantConnect", "Backtrader"
+                ]
+            },
+            // ADDITIONAL NAMES MENTIONED
+            {
+                label: "ADDITIONAL",
+                options: [
+                    "ThinkMarkets Platform", "IG Platform", "FOREX.com Platform"
+                ]
+            },
+            // OTHER
+            {
+                label: "OTHER",
+                options: [
+                    { value: 'Other', label: 'Other/Custom' }
+                ]
+            }
         ]));
 
         grid.appendChild(createInputGroup('Account Type', 'acc-type', account?.account_type, '', 'text', [
