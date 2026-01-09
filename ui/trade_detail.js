@@ -298,12 +298,25 @@ const AionTradeDetail = (function () {
 
         entryGrid.appendChild(createFormGroup('Planned Entry', createInput('trade-planned-entry', 'number', currentTrade.planned_entry_price, '', 'any')));
         entryGrid.appendChild(createFormGroup('Actual Entry', createInput('trade-actual-entry', 'number', currentTrade.actual_entry_price, '', 'any')));
-        entryGrid.appendChild(createFormGroup('Stop Loss', createInput('trade-sl', 'number', currentTrade.stop_loss, '', 'any')));
-        entryGrid.appendChild(createFormGroup('Take Profit', createInput('trade-tp', 'number', currentTrade.take_profit, '', 'any')));
+
+        // SL Pips → SL Price
+        entryGrid.appendChild(createFormGroup('SL (Pips)', createInput('trade-sl-pips', 'number', currentTrade.sl_pips, '', '0.1')));
+        entryGrid.appendChild(createFormGroup('Stop Loss Price', createInput('trade-sl', 'number', currentTrade.stop_loss, '', 'any')));
+
+        // TP Pips → TP Price
+        entryGrid.appendChild(createFormGroup('TP (Pips)', createInput('trade-tp-pips', 'number', currentTrade.tp_pips, '', '0.1')));
+        entryGrid.appendChild(createFormGroup('Take Profit Price', createInput('trade-tp', 'number', currentTrade.take_profit, '', 'any')));
+
         entryGrid.appendChild(createFormGroup('Exit Type', createSelect('trade-exit-type', AionValidators.EXIT_TYPES.map(e => ({ value: e, label: e })), currentTrade.exit_type)));
         entryGrid.appendChild(createFormGroup('Exit Price', createInput('trade-exit-price', 'number', currentTrade.exit_price, '', 'any')));
 
         entrySection.appendChild(entryGrid);
+
+        // Pip calculation note
+        const pipNote = createElement('p', 'text-xs text-aion-muted mt-2 italic',
+            'Enter SL/TP in pips to auto-calculate prices. For FOREX: 1 pip = 0.0001 (0.01 for JPY pairs). Prices auto-update based on direction.');
+        entrySection.appendChild(pipNote);
+
         card.appendChild(entrySection);
 
         // Calculated Fields Section
@@ -610,6 +623,134 @@ const AionTradeDetail = (function () {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', recalculateCosts);
         });
+
+        // SL/TP Pips → Price calculation
+        const slPipsEl = document.getElementById('trade-sl-pips');
+        const tpPipsEl = document.getElementById('trade-tp-pips');
+        const entryEl = document.getElementById('trade-actual-entry') || document.getElementById('trade-planned-entry');
+        const directionEl = document.getElementById('trade-direction');
+
+        if (slPipsEl) {
+            slPipsEl.addEventListener('change', calculateSLPriceFromPips);
+        }
+        if (tpPipsEl) {
+            tpPipsEl.addEventListener('change', calculateTPPriceFromPips);
+        }
+
+        // Also recalculate when entry or direction changes
+        if (entryEl) {
+            entryEl.addEventListener('change', () => {
+                calculateSLPriceFromPips();
+                calculateTPPriceFromPips();
+            });
+        }
+        if (directionEl) {
+            directionEl.addEventListener('change', () => {
+                calculateSLPriceFromPips();
+                calculateTPPriceFromPips();
+            });
+        }
+
+        // Position Size (Lots) → Risk% and USD Risk calculation
+        const positionSizeEl = document.getElementById('trade-position-size');
+        if (positionSizeEl) {
+            positionSizeEl.addEventListener('change', calculateRiskFromLots);
+        }
+    }
+
+    function getPipMultiplier(instrument) {
+        // JPY pairs have 2 decimal places (0.01 per pip)
+        // Most pairs have 4 decimal places (0.0001 per pip)
+        // Gold (XAU) uses 0.1 per pip
+        if (!instrument) return 0.0001;
+        instrument = instrument.toUpperCase();
+        if (instrument.includes('JPY')) return 0.01;
+        if (instrument.includes('XAU') || instrument.includes('GOLD')) return 0.1;
+        if (instrument.includes('XAG') || instrument.includes('SILVER')) return 0.01;
+        return 0.0001;
+    }
+
+    function calculateSLPriceFromPips() {
+        const slPips = parseFloat(document.getElementById('trade-sl-pips')?.value);
+        const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
+        const direction = document.getElementById('trade-direction')?.value;
+        const instrument = document.getElementById('trade-instrument')?.value;
+
+        if (!slPips || !entry || !direction) return;
+
+        const pipMultiplier = getPipMultiplier(instrument);
+        const slDistance = slPips * pipMultiplier;
+
+        // For LONG: SL is below entry, for SHORT: SL is above entry
+        const slPrice = direction === 'LONG' ? entry - slDistance : entry + slDistance;
+
+        const slEl = document.getElementById('trade-sl');
+        if (slEl) {
+            slEl.value = Math.round(slPrice * 100000) / 100000; // 5 decimal precision
+            recalculateRR();
+        }
+    }
+
+    function calculateTPPriceFromPips() {
+        const tpPips = parseFloat(document.getElementById('trade-tp-pips')?.value);
+        const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
+        const direction = document.getElementById('trade-direction')?.value;
+        const instrument = document.getElementById('trade-instrument')?.value;
+
+        if (!tpPips || !entry || !direction) return;
+
+        const pipMultiplier = getPipMultiplier(instrument);
+        const tpDistance = tpPips * pipMultiplier;
+
+        // For LONG: TP is above entry, for SHORT: TP is below entry
+        const tpPrice = direction === 'LONG' ? entry + tpDistance : entry - tpDistance;
+
+        const tpEl = document.getElementById('trade-tp');
+        if (tpEl) {
+            tpEl.value = Math.round(tpPrice * 100000) / 100000; // 5 decimal precision
+            recalculateRR();
+        }
+    }
+
+    function calculateRiskFromLots() {
+        const selectedAccountId = document.getElementById('trade-account')?.value;
+        const account = accounts.find(a => a.account_id === selectedAccountId);
+        if (!account) return;
+
+        const accountBalance = account.current_balance || account.initial_balance || 0;
+        if (accountBalance <= 0) return;
+
+        const positionSize = parseFloat(document.getElementById('trade-position-size')?.value);
+        const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
+        const sl = parseFloat(document.getElementById('trade-sl')?.value);
+        const pipValue = parseFloat(document.getElementById('trade-pip-value')?.value) || 10;
+        const marketType = document.getElementById('trade-market')?.value || 'FOREX';
+
+        if (!positionSize || !entry || !sl) return;
+
+        const slDistance = Math.abs(entry - sl);
+        let usdRisk;
+
+        // Calculate USD risk based on market type
+        if (marketType === 'STOCKS' || marketType === 'CRYPTO') {
+            // USD Risk = SL Distance * Position Size
+            usdRisk = slDistance * positionSize;
+        } else {
+            // FOREX/FUTURES/INDICES: USD Risk = SL Distance * Position Size * Pip Value
+            // For proper pip calculation, need to convert slDistance to pips first
+            const instrument = document.getElementById('trade-instrument')?.value;
+            const pipMultiplier = getPipMultiplier(instrument);
+            const slPips = slDistance / pipMultiplier;
+            usdRisk = slPips * positionSize * pipValue;
+        }
+
+        const riskPct = (usdRisk / accountBalance) * 100;
+
+        const riskPctEl = document.getElementById('trade-risk-pct');
+        const usdRiskEl = document.getElementById('trade-usd-risk');
+
+        if (riskPctEl) riskPctEl.value = Math.round(riskPct * 100) / 100;
+        if (usdRiskEl) usdRiskEl.value = Math.round(usdRisk * 100) / 100;
     }
 
     function recalculateRisk(source) {
@@ -802,9 +943,12 @@ const AionTradeDetail = (function () {
             entry_type: document.getElementById('trade-entry-type')?.value || null,
             planned_entry_price: parseFloat(document.getElementById('trade-planned-entry')?.value) || null,
             actual_entry_price: parseFloat(document.getElementById('trade-actual-entry')?.value) || null,
+            sl_pips: parseFloat(document.getElementById('trade-sl-pips')?.value) || null,
+            tp_pips: parseFloat(document.getElementById('trade-tp-pips')?.value) || null,
             stop_loss: sl || null,
             take_profit: tp || null,
             risk_pct: parseFloat(document.getElementById('trade-risk-pct')?.value) || null,
+            usd_risk: parseFloat(document.getElementById('trade-usd-risk')?.value) || null,
             usd_risk: parseFloat(document.getElementById('trade-usd-risk')?.value) || null,
             exit_type: document.getElementById('trade-exit-type')?.value || null,
             exit_price: exit || null,
