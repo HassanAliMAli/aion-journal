@@ -600,22 +600,11 @@ const AionTradeDetail = (function () {
 
     function setupFormListeners() {
         // Price fields for RR calculation
-        const priceFields = ['trade-planned-entry', 'trade-actual-entry', 'trade-sl', 'trade-tp', 'trade-exit-price', 'trade-direction', 'trade-position-size', 'trade-pip-value'];
+        const priceFields = ['trade-planned-entry', 'trade-actual-entry', 'trade-exit-price', 'trade-direction', 'trade-pip-value'];
         priceFields.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', recalculateRR);
         });
-
-        // Risk fields for bidirectional calculation
-        const riskPctEl = document.getElementById('trade-risk-pct');
-        const usdRiskEl = document.getElementById('trade-usd-risk');
-
-        if (riskPctEl) {
-            riskPctEl.addEventListener('change', () => recalculateRisk('pct'));
-        }
-        if (usdRiskEl) {
-            usdRiskEl.addEventListener('change', () => recalculateRisk('usd'));
-        }
 
         // Cost fields recalculation
         const costFields = ['trade-slippage', 'trade-spread', 'trade-commission', 'trade-swap'];
@@ -624,38 +613,63 @@ const AionTradeDetail = (function () {
             if (el) el.addEventListener('change', recalculateCosts);
         });
 
-        // SL/TP Pips → Price calculation
+        // =====================================================
+        // BIDIRECTIONAL SL: Price ↔ Pips
+        // =====================================================
+        const slPriceEl = document.getElementById('trade-sl');
         const slPipsEl = document.getElementById('trade-sl-pips');
-        const tpPipsEl = document.getElementById('trade-tp-pips');
-        const entryEl = document.getElementById('trade-actual-entry') || document.getElementById('trade-planned-entry');
-        const directionEl = document.getElementById('trade-direction');
 
+        if (slPriceEl) {
+            slPriceEl.addEventListener('change', calculateSLPipsFromPrice);
+        }
         if (slPipsEl) {
             slPipsEl.addEventListener('change', calculateSLPriceFromPips);
+        }
+
+        // =====================================================
+        // BIDIRECTIONAL TP: Price ↔ Pips
+        // =====================================================
+        const tpPriceEl = document.getElementById('trade-tp');
+        const tpPipsEl = document.getElementById('trade-tp-pips');
+
+        if (tpPriceEl) {
+            tpPriceEl.addEventListener('change', calculateTPPipsFromPrice);
         }
         if (tpPipsEl) {
             tpPipsEl.addEventListener('change', calculateTPPriceFromPips);
         }
 
-        // Also recalculate when entry or direction changes
-        if (entryEl) {
-            entryEl.addEventListener('change', () => {
-                calculateSLPriceFromPips();
-                calculateTPPriceFromPips();
-            });
+        // =====================================================
+        // TRI-DIRECTIONAL RISK: Risk% ↔ Risk$ ↔ Position Size
+        // =====================================================
+        const riskPctEl = document.getElementById('trade-risk-pct');
+        const usdRiskEl = document.getElementById('trade-usd-risk');
+        const positionSizeEl = document.getElementById('trade-position-size');
+
+        if (riskPctEl) {
+            riskPctEl.addEventListener('change', calculateFromRiskPct);
         }
-        if (directionEl) {
-            directionEl.addEventListener('change', () => {
-                calculateSLPriceFromPips();
-                calculateTPPriceFromPips();
-            });
+        if (usdRiskEl) {
+            usdRiskEl.addEventListener('change', calculateFromRiskUSD);
+        }
+        if (positionSizeEl) {
+            positionSizeEl.addEventListener('change', calculateFromPositionSize);
         }
 
-        // Position Size (Lots) → Risk% and USD Risk calculation
-        const positionSizeEl = document.getElementById('trade-position-size');
-        if (positionSizeEl) {
-            positionSizeEl.addEventListener('change', calculateRiskFromLots);
-        }
+        // Recalculate position when Entry or Direction changes (if risk is set)
+        const entryEl = document.getElementById('trade-actual-entry');
+        const plannedEntryEl = document.getElementById('trade-planned-entry');
+        const directionEl = document.getElementById('trade-direction');
+
+        const recalcAll = () => {
+            calculateSLPriceFromPips();
+            calculateTPPriceFromPips();
+            recalculatePositionFromRisk();
+        };
+
+        if (entryEl) entryEl.addEventListener('change', recalcAll);
+        if (plannedEntryEl) plannedEntryEl.addEventListener('change', recalcAll);
+        if (directionEl) directionEl.addEventListener('change', recalcAll);
     }
 
     function getPipMultiplier(instrument) {
@@ -670,6 +684,9 @@ const AionTradeDetail = (function () {
         return 0.0001;
     }
 
+    // =====================================================
+    // BIDIRECTIONAL SL CALCULATION
+    // =====================================================
     function calculateSLPriceFromPips() {
         const slPips = parseFloat(document.getElementById('trade-sl-pips')?.value);
         const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
@@ -686,11 +703,35 @@ const AionTradeDetail = (function () {
 
         const slEl = document.getElementById('trade-sl');
         if (slEl) {
-            slEl.value = Math.round(slPrice * 100000) / 100000; // 5 decimal precision
+            slEl.value = Math.round(slPrice * 100000) / 100000;
             recalculateRR();
+            recalculatePositionFromRisk(); // Recalculate position size when SL changes
         }
     }
 
+    function calculateSLPipsFromPrice() {
+        const slPrice = parseFloat(document.getElementById('trade-sl')?.value);
+        const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
+        const direction = document.getElementById('trade-direction')?.value;
+        const instrument = document.getElementById('trade-instrument')?.value;
+
+        if (!slPrice || !entry || !direction) return;
+
+        const pipMultiplier = getPipMultiplier(instrument);
+        const slDistance = Math.abs(entry - slPrice);
+        const slPips = slDistance / pipMultiplier;
+
+        const slPipsEl = document.getElementById('trade-sl-pips');
+        if (slPipsEl) {
+            slPipsEl.value = Math.round(slPips * 10) / 10; // 1 decimal
+            recalculateRR();
+            recalculatePositionFromRisk(); // Recalculate position size when SL changes
+        }
+    }
+
+    // =====================================================
+    // BIDIRECTIONAL TP CALCULATION
+    // =====================================================
     function calculateTPPriceFromPips() {
         const tpPips = parseFloat(document.getElementById('trade-tp-pips')?.value);
         const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
@@ -707,12 +748,127 @@ const AionTradeDetail = (function () {
 
         const tpEl = document.getElementById('trade-tp');
         if (tpEl) {
-            tpEl.value = Math.round(tpPrice * 100000) / 100000; // 5 decimal precision
+            tpEl.value = Math.round(tpPrice * 100000) / 100000;
             recalculateRR();
         }
     }
 
-    function calculateRiskFromLots() {
+    function calculateTPPipsFromPrice() {
+        const tpPrice = parseFloat(document.getElementById('trade-tp')?.value);
+        const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
+        const direction = document.getElementById('trade-direction')?.value;
+        const instrument = document.getElementById('trade-instrument')?.value;
+
+        if (!tpPrice || !entry || !direction) return;
+
+        const pipMultiplier = getPipMultiplier(instrument);
+        const tpDistance = Math.abs(tpPrice - entry);
+        const tpPips = tpDistance / pipMultiplier;
+
+        const tpPipsEl = document.getElementById('trade-tp-pips');
+        if (tpPipsEl) {
+            tpPipsEl.value = Math.round(tpPips * 10) / 10; // 1 decimal
+            recalculateRR();
+        }
+    }
+
+    // =====================================================
+    // TRI-DIRECTIONAL RISK/POSITION CALCULATION
+    // Any ONE input calculates the other TWO
+    // =====================================================
+    function recalculatePositionFromRisk() {
+        // Called when Risk% or Risk$ changes - calculate Position Size
+        const selectedAccountId = document.getElementById('trade-account')?.value;
+        const account = accounts.find(a => a.account_id === selectedAccountId);
+        if (!account) return;
+
+        const accountBalance = account.current_balance || account.initial_balance || 0;
+        if (accountBalance <= 0) return;
+
+        const entry = parseFloat(document.getElementById('trade-actual-entry')?.value) || parseFloat(document.getElementById('trade-planned-entry')?.value);
+        const sl = parseFloat(document.getElementById('trade-sl')?.value);
+        const pipValue = parseFloat(document.getElementById('trade-pip-value')?.value) || 10;
+        const marketType = document.getElementById('trade-market')?.value || 'FOREX';
+        const instrument = document.getElementById('trade-instrument')?.value;
+
+        if (!entry || !sl) return;
+
+        const riskPct = parseFloat(document.getElementById('trade-risk-pct')?.value);
+        const usdRisk = parseFloat(document.getElementById('trade-usd-risk')?.value);
+
+        // Need at least one of riskPct or usdRisk
+        if (!riskPct && !usdRisk) return;
+
+        const pipMultiplier = getPipMultiplier(instrument);
+        const slDistance = Math.abs(entry - sl);
+        const slPips = slDistance / pipMultiplier;
+
+        let positionSize;
+
+        if (marketType === 'STOCKS' || marketType === 'CRYPTO') {
+            // Position Size = USD Risk / SL Distance
+            const risk = usdRisk || (accountBalance * (riskPct / 100));
+            positionSize = risk / slDistance;
+        } else {
+            // FOREX/FUTURES/INDICES: Position Size = USD Risk / (SL Pips * Pip Value)
+            const risk = usdRisk || (accountBalance * (riskPct / 100));
+            positionSize = risk / (slPips * pipValue);
+        }
+
+        const positionSizeEl = document.getElementById('trade-position-size');
+        if (positionSizeEl && positionSize > 0 && isFinite(positionSize)) {
+            positionSizeEl.value = Math.round(positionSize * 100) / 100;
+        }
+    }
+
+    function calculateFromRiskPct() {
+        // User entered Risk% → Calculate Risk$ and Position Size
+        const selectedAccountId = document.getElementById('trade-account')?.value;
+        const account = accounts.find(a => a.account_id === selectedAccountId);
+        if (!account) return;
+
+        const accountBalance = account.current_balance || account.initial_balance || 0;
+        if (accountBalance <= 0) return;
+
+        const riskPct = parseFloat(document.getElementById('trade-risk-pct')?.value);
+        if (!riskPct) return;
+
+        // Calculate USD Risk
+        const usdRisk = accountBalance * (riskPct / 100);
+        const usdRiskEl = document.getElementById('trade-usd-risk');
+        if (usdRiskEl) {
+            usdRiskEl.value = Math.round(usdRisk * 100) / 100;
+        }
+
+        // Calculate Position Size
+        recalculatePositionFromRisk();
+    }
+
+    function calculateFromRiskUSD() {
+        // User entered Risk$ → Calculate Risk% and Position Size
+        const selectedAccountId = document.getElementById('trade-account')?.value;
+        const account = accounts.find(a => a.account_id === selectedAccountId);
+        if (!account) return;
+
+        const accountBalance = account.current_balance || account.initial_balance || 0;
+        if (accountBalance <= 0) return;
+
+        const usdRisk = parseFloat(document.getElementById('trade-usd-risk')?.value);
+        if (!usdRisk) return;
+
+        // Calculate Risk %
+        const riskPct = (usdRisk / accountBalance) * 100;
+        const riskPctEl = document.getElementById('trade-risk-pct');
+        if (riskPctEl) {
+            riskPctEl.value = Math.round(riskPct * 100) / 100;
+        }
+
+        // Calculate Position Size
+        recalculatePositionFromRisk();
+    }
+
+    function calculateFromPositionSize() {
+        // User entered Position Size → Calculate Risk% and Risk$
         const selectedAccountId = document.getElementById('trade-account')?.value;
         const account = accounts.find(a => a.account_id === selectedAccountId);
         if (!account) return;
@@ -725,22 +881,19 @@ const AionTradeDetail = (function () {
         const sl = parseFloat(document.getElementById('trade-sl')?.value);
         const pipValue = parseFloat(document.getElementById('trade-pip-value')?.value) || 10;
         const marketType = document.getElementById('trade-market')?.value || 'FOREX';
+        const instrument = document.getElementById('trade-instrument')?.value;
 
         if (!positionSize || !entry || !sl) return;
 
+        const pipMultiplier = getPipMultiplier(instrument);
         const slDistance = Math.abs(entry - sl);
+        const slPips = slDistance / pipMultiplier;
+
         let usdRisk;
 
-        // Calculate USD risk based on market type
         if (marketType === 'STOCKS' || marketType === 'CRYPTO') {
-            // USD Risk = SL Distance * Position Size
             usdRisk = slDistance * positionSize;
         } else {
-            // FOREX/FUTURES/INDICES: USD Risk = SL Distance * Position Size * Pip Value
-            // For proper pip calculation, need to convert slDistance to pips first
-            const instrument = document.getElementById('trade-instrument')?.value;
-            const pipMultiplier = getPipMultiplier(instrument);
-            const slPips = slDistance / pipMultiplier;
             usdRisk = slPips * positionSize * pipValue;
         }
 
