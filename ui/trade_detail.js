@@ -222,7 +222,12 @@ const AionTradeDetail = (function () {
         const marketConfig = AionValidators.MARKET_FIELD_CONFIG[marketType] || AionValidators.MARKET_FIELD_CONFIG.FOREX;
 
         // Basic fields
-        grid.appendChild(createFormGroup('Account', createSelect('trade-account', accounts.map(a => ({ value: a.account_id, label: `${a.trader_name} (${a.platform})` })), currentTrade.account_id)));
+        const accountSelect = createSelect('trade-account', accounts.map(a => ({ value: a.account_id, label: `${a.trader_name} (${a.platform})` })), currentTrade.account_id);
+        accountSelect.addEventListener('change', () => {
+            updateAccountBalanceDisplay();
+            recalculatePositionFromRisk();
+        });
+        grid.appendChild(createFormGroup('Account', accountSelect));
         grid.appendChild(createFormGroup('Setup', createSelect('trade-setup', setups.filter(s => s.setup_status === 'ACTIVE').map(s => ({ value: s.setup_id, label: s.setup_name })), currentTrade.setup_id)));
 
         // Market Type with change listener
@@ -263,7 +268,20 @@ const AionTradeDetail = (function () {
 
         // Position Sizing Section
         const posSection = createElement('div', 'mt-6 p-4 bg-aion-bg/30 rounded-lg');
-        posSection.appendChild(createElement('h4', 'text-sm font-bold mb-3 text-aion-muted uppercase', 'Position Sizing'));
+
+        // Header with account balance display
+        const posHeader = createElement('div', 'flex justify-between items-center mb-3');
+        posHeader.appendChild(createElement('h4', 'text-sm font-bold text-aion-muted uppercase', 'Position Sizing'));
+
+        // Account balance indicator
+        const balanceDisplay = createElement('div', 'flex items-center gap-2');
+        balanceDisplay.appendChild(createElement('span', 'text-xs text-aion-muted', 'Account Balance:'));
+        const balanceValue = createElement('span', 'text-sm font-mono font-bold text-aion-accent', '$0.00');
+        balanceValue.id = 'account-balance-display';
+        balanceDisplay.appendChild(balanceValue);
+        posHeader.appendChild(balanceDisplay);
+        posSection.appendChild(posHeader);
+
         const posGrid = createElement('div', 'grid grid-cols-2 md:grid-cols-4 gap-4');
 
         // Position size field (label changes per market)
@@ -670,6 +688,28 @@ const AionTradeDetail = (function () {
         if (entryEl) entryEl.addEventListener('change', recalcAll);
         if (plannedEntryEl) plannedEntryEl.addEventListener('change', recalcAll);
         if (directionEl) directionEl.addEventListener('change', recalcAll);
+
+        // Initial update of account balance display
+        updateAccountBalanceDisplay();
+    }
+
+    function updateAccountBalanceDisplay() {
+        const selectedAccountId = document.getElementById('trade-account')?.value;
+        const account = accounts.find(a => a.account_id === selectedAccountId);
+        const balanceEl = document.getElementById('account-balance-display');
+
+        if (balanceEl) {
+            if (account) {
+                const balance = account.current_balance || account.initial_balance || 0;
+                balanceEl.textContent = `$${balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                balanceEl.classList.remove('text-red-400');
+                balanceEl.classList.add('text-aion-accent');
+            } else {
+                balanceEl.textContent = 'Select Account';
+                balanceEl.classList.remove('text-aion-accent');
+                balanceEl.classList.add('text-red-400');
+            }
+        }
     }
 
     function getPipMultiplier(instrument) {
