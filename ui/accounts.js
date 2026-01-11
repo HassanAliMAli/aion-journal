@@ -370,6 +370,11 @@ const AionAccounts = (function () {
         grid.appendChild(createInputGroup('Currency', 'acc-currency', account?.currency || 'USD', 'USD, EUR, GBP'));
         grid.appendChild(createInputGroup('Initial Balance', 'acc-balance', account?.initial_balance || '', '0.00', 'number'));
 
+        // Current Balance field (only shown when editing, allows manual adjustment)
+        if (isEdit) {
+            grid.appendChild(createInputGroup('Current Balance', 'acc-current-balance', account?.current_balance || account?.initial_balance || '', '0.00', 'number'));
+        }
+
         card.appendChild(grid);
 
         const limitsContainer = createElement('div', 'bg-aion-bg/30 p-4 rounded-lg mb-4');
@@ -419,8 +424,11 @@ const AionAccounts = (function () {
                     max_drawdown: document.getElementById('acc-limit-dd').value,
                     profit_target: document.getElementById('acc-limit-target').value
                 },
-                // Preserve existing fields if editing
-                current_balance: id ? accounts.find(a => a.account_id === id).current_balance : parseFloat(document.getElementById('acc-balance').value) || 0,
+                // For editing: use the current_balance input if available, otherwise preserve existing
+                // For new accounts: default current_balance to initial_balance
+                current_balance: id
+                    ? (parseFloat(document.getElementById('acc-current-balance')?.value) || accounts.find(a => a.account_id === id)?.current_balance || parseFloat(document.getElementById('acc-balance').value) || 0)
+                    : (parseFloat(document.getElementById('acc-balance').value) || 0),
                 created_at: id ? accounts.find(a => a.account_id === id).created_at : new Date().toISOString()
             };
 
