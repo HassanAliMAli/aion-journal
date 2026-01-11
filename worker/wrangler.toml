@@ -16,7 +16,7 @@ id = "bf218a9056ef4e4c91bceedd2e5316f5"
 [vars]
 # Environment variables for JWT constraints (Secrets to be set via 'wrangler secret put')
 ENVIRONMENT = "production"
-ALLOWED_ORIGINS = "http://127.0.0.1:5500,https://aion-journal-os.pages.dev,https://trading-journal-platform.pages.dev,https://aion-journal-ui.pages.dev,https://tradingjournal.pages.dev"
+ALLOWED_ORIGINS = "http://127.0.0.1:5500,https://mytradesjournal.pages.dev"
 GITHUB_REPO = "HassanAliMAli/Trading-Journal_Data"
 
 # CORS configuration
