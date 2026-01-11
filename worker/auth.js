@@ -61,7 +61,7 @@ async function login(request, env) {
 
         // Return Cookie
         const headers = new Headers();
-        headers.set('Set-Cookie', `auth_token=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_DURATION}`);
+        headers.set('Set-Cookie', `auth_token=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${SESSION_DURATION}`);
         headers.set('Content-Type', 'application/json');
 
         return new Response(JSON.stringify({
@@ -75,7 +75,7 @@ async function login(request, env) {
 
 async function logout() {
     const headers = new Headers();
-    headers.set('Set-Cookie', 'auth_token=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
+    headers.set('Set-Cookie', 'auth_token=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0');
     return new Response(JSON.stringify({ success: true }), { headers });
 }
 
